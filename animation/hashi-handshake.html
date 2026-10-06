@@ -1,0 +1,508 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>The HASHI Handshake</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a signalling stage (actors + moving packets) above a two-column caption / payload panel; one step at a time */
+:root {
+  --bg: #EDF0F4;
+  --surface: #FFFFFF;
+  --ink: #142033;
+  --muted: #5B6779;
+  --line: #C6CFDA;
+  --john: #0D7A6E;
+  --sarah: #A8346F;
+  --server: #35588C;
+  --code-bg: #F6F8FB;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D131B; --surface: #151E29; --ink: #E5EBF2; --muted: #93A0B2; --line: #2A3747;
+    --john: #3FC1B0; --sarah: #E57BB3; --server: #82A6DC; --code-bg: #101820; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D131B; --surface: #151E29; --ink: #E5EBF2; --muted: #93A0B2; --line: #2A3747;
+  --john: #3FC1B0; --sarah: #E57BB3; --server: #82A6DC; --code-bg: #101820; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 48px; display: grid; gap: 20px; }
+
+header { display: grid; gap: 6px; }
+.brand { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.mark { font-family: var(--display); font-weight: 700; font-size: 2.1rem; color: var(--john); line-height: 1; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); max-width: 62ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+.stage { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px; }
+.stage svg { display: block; width: 100%; height: auto; }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.btn { font: 500 0.88rem var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+.btn:hover { border-color: var(--muted); }
+.btn:focus-visible, .dot:focus-visible { outline: 2px solid var(--john); outline-offset: 2px; }
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); min-width: 84px; }
+.dots { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.dot { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font: 500 0.72rem var(--mono); cursor: pointer; padding: 0; font-variant-numeric: tabular-nums; }
+.dot.done { background: var(--code-bg); color: var(--ink); }
+.dot.cur { background: var(--john); border-color: var(--john); color: var(--surface); }
+.bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.bar b { display: block; height: 100%; width: 0; background: var(--john); }
+
+.panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 20px; }
+@media (max-width: 760px) { .panel { grid-template-columns: minmax(0, 1fr); } }
+.caption { min-width: 0; display: grid; align-content: start; gap: 10px; }
+.kicker { font: 500 0.75rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.caption h2 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; line-height: 1.15; margin: 0; text-wrap: balance; }
+.caption p { margin: 0; max-width: 62ch; }
+.checks { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+.checks li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; font-size: 0.9rem; animation: rise 0.35s ease both; }
+.checks li::before { content: "✓"; color: var(--john); font-weight: 600; }
+@keyframes rise { from { opacity: 0.2; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+.payload { min-width: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.payload .lbl { font: 500 0.72rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 10px 14px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.payload pre { margin: 0; padding: 14px; overflow-x: auto; font: 0.8rem/1.6 var(--mono); color: var(--ink); }
+.payload .k { color: var(--server); }
+.payload .s { color: var(--sarah); }
+.payload .j { color: var(--john); }
+footer { font-size: 0.82rem; color: var(--muted); }
+
+/* SVG */
+.box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; transition: opacity 0.4s, stroke 0.3s; }
+.actor { transition: opacity 0.4s; }
+.actor.dim { opacity: 0.38; }
+.actor.on[data-who="john"] .box { stroke: var(--john); stroke-width: 2.5; }
+.actor.on[data-who="sarah"] .box { stroke: var(--sarah); stroke-width: 2.5; }
+.actor.on[data-who="server"] .box { stroke: var(--server); stroke-width: 2.5; }
+.atitle { font: 600 13.5px var(--display); fill: var(--ink); }
+.asub { font: 400 10.5px var(--mono); fill: var(--muted); }
+.tag { font: 500 9px var(--mono); fill: var(--muted); letter-spacing: 0.08em; }
+.ledger { font: 500 11px var(--mono); fill: var(--ink); }
+.decide { font: 500 10.5px var(--mono); fill: var(--server); }
+.swatch { stroke: none; }
+.conn { fill: none; stroke: var(--line); stroke-width: 1.5; transition: stroke 0.3s, opacity 0.3s; }
+.conn.dash { stroke-dasharray: 4 5; }
+.conn.on { stroke: var(--muted); }
+.conn.off { opacity: 0.35; }
+.qrcell { fill: var(--ink); }
+.qrbg { fill: var(--surface); }
+#qr, #confirm { transition: opacity 0.4s; }
+.used { font: 600 10px var(--mono); fill: var(--sarah); letter-spacing: 0.08em; }
+.card { fill: var(--code-bg); stroke: var(--line); stroke-width: 1; }
+.cardn { font: 600 10.5px var(--display); fill: var(--ink); }
+.cardh { font: 500 9.5px var(--mono); fill: var(--john); }
+.cardm { font: 400 9.5px var(--body); fill: var(--muted); }
+.chip { fill: var(--sarah); transition: fill 0.3s; }
+.chip.done { fill: var(--john); }
+.chipt { font: 600 9.5px var(--body); fill: var(--surface); }
+.pkt rect { stroke: none; }
+.pkt text { font: 500 11px var(--body); fill: #fff; }
+:root[data-theme="dark"] .pkt text { fill: #0D131B; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pkt text { fill: #0D131B; } }
+.offline { font: 500 10px var(--mono); fill: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .checks li { animation: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="mark" aria-hidden="true">#</span><h1>The HASHI handshake</h1></div>
+    <p class="lede">John meets Sarah on the street. Their agents set up coffee that evening. This walks through every HASHI message in between, from the QR code to the hand-off, using HASHI 0.1.</p>
+    <div class="legend">
+      <span><i style="background:var(--john)"></i>John and his devices</span>
+      <span><i style="background:var(--sarah)"></i>Sarah's app and agent</span>
+      <span><i style="background:var(--server)"></i>John's HASHI server</span>
+    </div>
+  </header>
+
+  <div class="stage"><svg id="stage" role="img" aria-label="Animated diagram of HASHI messages between John's phone, John's HASHI server, Sarah's app or agent, and John's agent"></svg></div>
+
+  <div class="controls">
+    <button class="btn" id="prev" type="button">Back</button>
+    <button class="btn primary" id="play" type="button">Pause</button>
+    <button class="btn" id="next" type="button">Next</button>
+    <div class="dots" id="dots"></div>
+    <button class="btn" id="restart" type="button">Restart</button>
+  </div>
+  <div class="bar"><b id="bar"></b></div>
+
+  <section class="panel" aria-live="polite">
+    <div class="caption">
+      <div class="kicker" id="kicker"></div>
+      <h2 id="title"></h2>
+      <p id="body"></p>
+      <ul class="checks" id="checks"></ul>
+    </div>
+    <div class="payload">
+      <div class="lbl" id="codeLabel"></div>
+      <pre id="code"></pre>
+    </div>
+  </section>
+
+  <footer>HASHI never carries the conversation. It sets up who may reach whom, at what level, over which protocol, then steps aside. Use ← → to step, space to pause.</footer>
+</div>
+
+<script>
+const LAYOUTS = {
+  wide: { vb: [900, 430], qr: 64,
+    box: { jphone: [40, 30, 190, 120], sphone: [670, 30, 190, 120], server: [355, 150, 190, 140], jagent: [40, 290, 190, 110] },
+    paths: {
+      inperson: [[230, 80], [670, 80]],
+      inpersonBack: [[670, 114], [230, 114]],
+      req: [[705, 150], [705, 205], [545, 205]],
+      resp: [[545, 240], [740, 240], [740, 150]],
+      notify: [[355, 165], [100, 165], [100, 150]],
+      a2aReq: [[790, 150], [790, 338], [230, 338]],
+      a2aResp: [[230, 368], [825, 368], [825, 150]]
+    } },
+  narrow: { vb: [400, 640], qr: 50,
+    box: { jphone: [16, 16, 170, 110], sphone: [214, 16, 170, 110], server: [110, 230, 180, 140], jagent: [16, 500, 170, 110] },
+    paths: {
+      inperson: [[150, 126], [150, 170], [250, 170], [250, 126]],
+      inpersonBack: [[270, 126], [270, 198], [130, 198], [130, 126]],
+      req: [[322, 126], [322, 280], [290, 280]],
+      resp: [[290, 320], [350, 320], [350, 126]],
+      notify: [[110, 250], [60, 250], [60, 126]],
+      a2aReq: [[372, 126], [372, 430], [120, 430], [120, 500]],
+      a2aResp: [[146, 500], [146, 455], [392, 455], [392, 110], [384, 110]]
+    } }
+};
+const ACTORS = {
+  jphone: { who: "john", title: "John's phone", sub: "device key" },
+  server: { who: "server", title: "John's HASHI server", sub: "hashi.my.domain" },
+  sphone: { who: "sarah", title: "Sarah's agent", sub: "sarah#example.org" },
+  jagent: { who: "john", title: "John's agent", sub: "agents.my.domain/a2a" }
+};
+const DASHED = { inperson: 1, inpersonBack: 1 };
+const APP = { sLabel: "Sarah's app", sSub: "HASHI app · her phone" };
+const CARDS = {
+  ask: { rows: ["John Doe", "john#my.domain", "level 4 · “coffee”"], chip: "Accept" },
+  done: { rows: ["John Doe", "john#my.domain", "level 4 · “coffee”"], chip: "Accepted ✓", done: true },
+  page: { rows: ["Got a hashi?", "john#my.domain", "Open in app · Get one"] }
+};
+
+const STEPS = [
+  { when: "12:40 · on the street", t: "John and Sarah meet",
+    body: "They get chatting and want to find a time for coffee. Neither wants to swap personal numbers, but both are happy to let their AI agents sort out a time. John's address is a hashi, john#my.domain. It tells you where to find him. On its own it grants nothing.",
+    active: ["jphone", "sphone"], paths: [], packets: [], sLabel: "Sarah's phone",
+    codeLabel: "Three layers of John",
+    code: "John Doe          ← who a person sees\njohn#my.domain    ← the address he hands out\nhid:Q3pT0gq…      ← his cryptographic identity\n\nSpoken aloud: \"john hash my dot domain\"" },
+
+  { when: "12:41 · in person", t: "John shows an offer",
+    body: "John's phone signs a one-time offer with its device key, inviting Sarah in at trust level 4. The QR code holds an ordinary HTTPS link, so any phone camera can open it, and the offer rides in the link's fragment, so it never lands in a server log or a link preview. Sarah scans it with her HASHI app. With only her camera, she'd land on John's page and tap “Open in app”.",
+    checks: ["Signed by John's device key, with its delegation in the dlg header", "One-time, expires in 48 hours", "An HTTPS link: any camera opens it, and HASHI apps read it directly", "The note “coffee” is display text only, never agent instructions"],
+    active: ["jphone", "sphone"], paths: ["inperson"], qr: "on", ...APP,
+    packets: [{ path: "inperson", label: "QR · offer, level 4", who: "john" }],
+    codeLabel: "QR contents → offer payload",
+    code: "https://my.domain/.well-known/hashi/john#o=eyJhbGci…\n" + " ".repeat(40) + "└ offer rides in the fragment\n\n{\n  \"typ\": \"hashi-offer+jwt\",\n  \"iss\": \"hid:Q3pT0gq…\",\n  \"hashi\": \"john#my.domain\",\n  \"display_name\": \"John Doe\",\n  \"lvl\": 4,\n  \"nonce\": \"b9Xk2…\",\n  \"one_time\": true,\n  \"iat\": 1791270000,\n  \"exp\": 1791442800,\n  \"note\": \"coffee\"\n}" },
+
+  { when: "12:41 · Sarah's app", t: "Resolve John's hashi",
+    body: "Sarah's app fetches John's hashi document from the same URL that was in the QR code, this time asking for JSON. A browser asking for that URL gets John's page instead. No redirects, no other ports. Then the app checks that John himself, not just whoever hosts my.domain, vouches for what's in it.",
+    checks: ["Rotation chain from the genesis key matches the HID", "Binding is signed by John's identity key and matches every field", "Freshness statement is under 24 hours old", "Pins HID, identity key and epoch 3 for next time"],
+    active: ["sphone", "server"], paths: ["req", "resp"], qr: "on", ...APP,
+    packets: [{ path: "req", label: "GET …/hashi/john (JSON)", who: "sarah" }, { path: "resp", label: "hashi document", who: "server" }],
+    codeLabel: "GET https://my.domain/.well-known/hashi/john",
+    code: "Accept: application/hashi+json\n\n{\n  \"version\": \"0.1\",\n  \"hashi\": \"john#my.domain\",\n  \"display_name\": \"John Doe\",\n  \"hid\": \"hid:Q3pT0gq1mRk2b0nN7y3A…\",\n  \"epoch\": 3,\n  \"identity_key\": { \"kty\": \"OKP\", \"crv\": \"Ed25519\", … },\n  \"binding\": \"<JWS, John's identity key>\",\n  \"fresh\": \"<JWS, server key, re-signed hourly>\",\n  \"endpoint\": \"https://hashi.my.domain/v1\",\n  \"protocols\": [\"a2a/1.0\"],\n  \"rotations\": [],\n  \"revoked\": [\"dlg_1b9…\"]\n}" },
+
+  { when: "12:41 · Sarah's app", t: "Check it's John's, then ask Sarah",
+    body: "Anyone could print a QR code claiming to be John. The app follows the chain from John's identity key, through the delegation for his phone, to the offer itself. Only when everything checks out does it ask Sarah to confirm, showing John's name next to his hashi so a look-alike name can't fool her.",
+    checks: ["offer iss = delegation iss = document hid", "Delegation role is device, signed by the current identity key", "Not expired and not on the revoked list", "Offered level 4 is within the delegation's max_lvl"],
+    active: ["sphone"], paths: [], qr: "on", packets: [], confirm: "ask", ...APP,
+    codeLabel: "Chain of signatures",
+    code: "identity key        hid:Q3pT0gq…   (kept off the phone)\n  └─ signs  device delegation   dlg_2c8e…\n             role: device   max_lvl: 7   exp: 30 days\n       └─ signs  offer\n                  lvl: 4   nonce: b9Xk2…   one_time\n\nAll three name the same HID, so the offer is John's.\n\nThe app asks:  John Doe · john#my.domain\n               level 4 · “coffee”      [ Accept ]" },
+
+  { when: "12:42 · Sarah's app → John's server", t: "Sarah accepts, her app redeems",
+    body: "Sarah taps Accept. Her app posts the offer to the endpoint in John's verified document, signed with its agent-role key. In HASHI, “agent” means anything acting for Sarah, so her app holds one just as an AI agent does. John's server burns the nonce and records level 4 against Sarah's HID, not against this app or phone. Then it tells John's phone who redeemed his offer.",
+    checks: ["Request signature (RFC 9421) and the app's delegation from Sarah verify", "Offer re-checked against the server's own record of john", "Nonce marked used, atomically", "Grant recorded: Sarah's HID → 4", "John notified: redeemed by sarah#example.org"],
+    active: ["sphone", "server", "jphone"], paths: ["req", "resp", "notify"], qr: "used", ledger: 4, confirm: "done", ...APP,
+    packets: [{ path: "req", label: "POST /redeem (signed)", who: "sarah" }, { path: "resp", label: "grant · level 4", who: "server" }, { path: "notify", label: "redeemed by Sarah", who: "server" }],
+    codeLabel: "POST https://hashi.my.domain/v1/redeem",
+    code: "Hashi-Delegation: eyJ…   ← the app's agent-role key, from Sarah's HID\nSignature: sig1=:…:\n\n{\n  \"offer\": \"eyJhbGciOiJFUzI1NiIs…\",\n  \"requester\": { \"hashi\": \"sarah#example.org\" }\n}\n\n← 200  grant token (evidence; the server's record rules)\n{\n  \"typ\": \"hashi-grant+jwt\",\n  \"iss\": \"hid:Q3pT0gq…\",\n  \"sub\": \"hid:Zr8L…\",\n  \"lvl\": 4,\n  \"gid\": \"grt_91c…\"\n}\n\n→ John's phone:  Sarah · sarah#example.org redeemed your offer" },
+
+  { when: "12:43 · in person", t: "Trust only runs one way",
+    body: "Sarah can now reach John's agent at level 4. John has gained nothing with Sarah. If she wants his agent to be able to reach hers, she shows him an offer of her own, at whatever level she picks. Each side only ever sets the level it grants.",
+    active: ["jphone", "sphone"], paths: ["inpersonBack"], ledger: 4, ...APP,
+    packets: [{ path: "inpersonBack", label: "her own offer (optional)", who: "sarah", ghost: true }],
+    codeLabel: "Who trusts whom",
+    code: "John → Sarah    level 4    (John's offer, redeemed)\nSarah → John    level 0    (until she issues her own)\n\nRules\n· the offer is a ceiling; the server may record less\n· lowering is instant and one-sided\n· raising needs a new offer" },
+
+  { when: "19:05 · Sarah's agent → John's server", t: "That evening, Sarah's agent knocks",
+    body: "Sarah asks her agent to set up the coffee. Her app redeemed the offer, but the grant belongs to Sarah's HID, so her agent can use it. It knocks on John's HASHI server with a routing intent and the protocols it speaks, most preferred first. Knocks carry no free text, so there's nothing in them for an agent to be tricked by.",
+    active: ["sphone", "server"], paths: ["req"], ledger: 4,
+    packets: [{ path: "req", label: "POST /knock · schedule", who: "sarah" }],
+    codeLabel: "POST https://hashi.my.domain/v1/knock",
+    code: "Hashi-Delegation: eyJ…         ← Sarah's agent key\nHashi-Grant: eyJ…              ← optional evidence\nSignature: sig1=:…:\n\n{\n  \"to\": \"john#my.domain\",\n  \"from\": \"sarah#example.org\",\n  \"intent\": \"schedule\",\n  \"protocols\": [\"a2a/1.0\"]\n}" },
+
+  { when: "19:05 · John's server", t: "John's server decides",
+    body: "The server takes the lowest of three numbers as Sarah's effective level. Its own record wins, so if John had lowered Sarah since lunch, that would apply right now. John allows scheduling at level 4. The first protocol in Sarah's list that John's agent supports is a2a/1.0.",
+    checks: ["Recorded for Sarah's HID: 4", "Grant token presented: 4", "Her agent delegation's max_lvl: 6", "Effective level 4 · scheduling allowed · a2a/1.0"],
+    active: ["server"], paths: [], ledger: 4, decide: "min(4, 4, 6) = 4 · a2a/1.0", packets: [],
+    codeLabel: "Decision",
+    code: "effective = min( recorded 4, grant 4, max_lvl 6 ) = 4\n\npolicy[4].schedule   → allow\nprotocol             → a2a/1.0   (first match in Sarah's list)\nresult               → yeah" },
+
+  { when: "19:05 · John's server → Sarah's agent", t: "Yeah, and here's the handover",
+    body: "The server answers yeah, and the handover says where John's agent is: the address of John's own Agent Card. With it comes a credential signed by the server key. The credential names John's agent as its audience, carries level 4, is bound to Sarah's agent key so it's useless if intercepted, and expires in 15 minutes.",
+    checks: ["The address is John's own Agent Card, not a domain-wide one", "Its host is allowed by John's binding (handover_hosts)", "Credential bound to Sarah's key with cnf", "Longer conversations knock again, re-checking the level"],
+    active: ["server", "sphone"], paths: ["resp"], ledger: 4, decide: "min(4, 4, 6) = 4 · a2a/1.0",
+    packets: [{ path: "resp", label: "yeah · handover", who: "server" }],
+    codeLabel: "← 200 yeah",
+    code: "{\n  \"result\": \"yeah\",\n  \"level\": 4,\n  \"handover\": {\n    \"protocol\": \"a2a/1.0\",\n    \"endpoint\": \"https://agents.my.domain/john/agent-card.json\",\n    \"credential\": \"eyJ0eXAiOiJoYXNoaS1hMmEr…\",\n    \"expires_at\": \"2026-10-06T07:15:00Z\"\n  }\n}" },
+
+  { when: "19:06 · agent to agent", t: "The agents take it from here",
+    body: "Sarah's agent fetches John's Agent Card from the address in the handover. The card says where to send A2A requests and how to authenticate. Sarah's agent checks that address is one John's binding allows, then calls John's agent, presenting the credential and proving it holds the bound key on every request. They settle on Thursday at 8. HASHI never sees this conversation.",
+    checks: ["Card fetched from the address in the handover", "Interface URL's host allowed by John's binding", "Credential and proof of possession on every request"],
+    active: ["sphone", "jagent"], paths: ["a2aReq", "a2aResp"], ledger: 4, serverDim: true,
+    packets: [{ path: "a2aReq", label: "GET Agent Card", who: "sarah" }, { path: "a2aResp", label: "Agent Card", who: "john" }, { path: "a2aReq", label: "A2A · Thu 8:00?", who: "sarah" }, { path: "a2aResp", label: "Thu 8:00 works", who: "john" }],
+    codeLabel: "John's Agent Card, then the credential",
+    code: "GET https://agents.my.domain/john/agent-card.json\n\n{\n  \"name\": \"John's agent\",\n  \"supportedInterfaces\": [{\n    \"url\": \"https://agents.my.domain/john/a2a\",\n    \"protocolBinding\": \"JSONRPC\",\n    \"protocolVersion\": \"1.0\"\n  }],\n  \"securitySchemes\": {\n    \"hashi\": { \"httpAuthSecurityScheme\": { \"scheme\": \"bearer\" } }\n  },\n  \"skills\": [{ \"id\": \"schedule\", … }]\n}\n\nCredential (a2a/1.0 binding)\n{\n  \"typ\": \"hashi-a2a+jwt\",\n  \"aud\": \"https://agents.my.domain/john/agent-card.json\",\n  \"sub\": \"hid:Zr8L…\",\n  \"cnf\": { \"jkt\": \"<Sarah's agent key>\" },\n  \"lvl\": 4,\n  \"exp\": iat + 15 min\n}\n\nEvery A2A request: bearer credential + DPoP or RFC 9421 proof" },
+
+  { when: "a month later", t: "New agent, same relationship",
+    body: "Sarah moves to a different agent provider. Her identity key signs a delegation for the new agent's key. John's server recorded the grant against Sarah's HID, so the new agent knocks and gets level 4 straight away. No new QR code and no new handshake.",
+    active: ["sphone", "server"], paths: ["req", "resp"], ledger: 4, decide: "min(4, 4, 6) = 4", sLabel: "Sarah's new agent",
+    packets: [{ path: "req", label: "knock · new agent key", who: "sarah" }, { path: "resp", label: "yeah · level 4", who: "server" }],
+    codeLabel: "Why it still works",
+    code: "new agent key     → new delegation from Sarah's identity key\ngrant lookup      → hid:Zr8L… → 4   (unchanged)\neffective level   → min(4, 4, 6) = 4\n\nPeople first: agents, devices and keys change underneath;\nthe relationship doesn't." },
+
+  { when: "what if · 12:41, no hashi", t: "No hashi? Get one",
+    body: "If Sarah had no HASHI app, her camera would open the same link in her browser, and John's page would ask “Got a hashi?”. With one, she'd tap “Open in app”. Without one, the page points her to an app store or a provider. Like email, she needs an address before anyone can reach her. Once she's set up, she taps the link again and picks up at step 3, as long as the offer is still valid.",
+    checks: ["The page never redeems, holds keys or offers chat", "Nothing is recorded until Sarah has a hashi", "The same one-time offer still works once she's set up, until it expires"],
+    active: ["sphone", "server"], paths: ["req", "resp"], qr: "on", confirm: "page", ledgerText: "nothing redeemed", sLabel: "Sarah's browser", sSub: "no HASHI app yet",
+    packets: [{ path: "req", label: "open John's page", who: "sarah" }, { path: "resp", label: "“Got a hashi?”", who: "server" }],
+    codeLabel: "The same link, opened in a browser",
+    code: "GET https://my.domain/.well-known/hashi/john\nAccept: text/html          ← a browser, so John's page\n\n    Got a hashi?\n    John Doe · john#my.domain\n\n    [ Open in app ]   → hashi://my.domain/john#o=…\n    [ Get a hashi ]   → app stores and providers\n\nNothing is redeemed. Once Sarah has a hashi, she taps\nthe link again and her app picks up at step 3." },
+
+  { when: "whenever John chooses", t: "If John moves on",
+    body: "Say John later drops Sarah to 0. He doesn't accept level-0 knocks, so from her very next knock the answer is nah. It carries no reason and looks exactly like the nah any stranger gets, so Sarah can't tell she's been singled out. Anything already agreed stays agreed.",
+    active: ["sphone", "server"], paths: ["req", "resp"], ledger: 0, decide: "level 0 · not accepted", sLabel: "Sarah's new agent",
+    packets: [{ path: "req", label: "knock · schedule", who: "sarah" }, { path: "resp", label: "nah", who: "server" }],
+    codeLabel: "← 403 nah",
+    code: "John sets  hid:Zr8L… → 0\nlevel0.accept: false\n\nPOST /v1/knock  →  403\n{ \"result\": \"nah\" }\n\nSame bytes whatever the reason. No probing, no tells." }
+];
+
+/* ---------- helpers ---------- */
+const NS = "http://www.w3.org/2000/svg";
+const $ = id => document.getElementById(id);
+const svg = $("stage");
+const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function hl(s) {
+  return esc(s)
+    .replace(/("[a-z_]+")(\s*:)/g, '<span class="k">$1</span>$2')
+    .replace(/(sarah#example\.org|hid:Zr8L…)/g, '<span class="s">$1</span>')
+    .replace(/(john#my\.domain|hid:Q3pT0gq[^\s"]*)/g, '<span class="j">$1</span>');
+}
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function rng(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+
+let L, layoutName, cur = 0, playing = !reduce, runTok = 0;
+
+/* ---------- stage ---------- */
+function buildStage() {
+  layoutName = svg.parentElement.clientWidth < 620 ? "narrow" : "wide";
+  L = LAYOUTS[layoutName];
+  svg.innerHTML = "";
+  svg.setAttribute("viewBox", `0 0 ${L.vb[0]} ${L.vb[1]}`);
+  const conns = el("g", {}, svg);
+  for (const name in L.paths) {
+    el("polyline", { id: "c-" + name, class: "conn" + (DASHED[name] ? " dash" : ""), points: L.paths[name].map(p => p.join(",")).join(" ") }, conns);
+  }
+  for (const id in ACTORS) {
+    const a = ACTORS[id], [x, y, w, h] = L.box[id];
+    const g = el("g", { id: "a-" + id, class: "actor", "data-who": a.who }, svg);
+    el("rect", { class: "box", x, y, width: w, height: h, rx: 12 }, g);
+    el("rect", { class: "swatch", x: x + 14, y: y + 16, width: 8, height: 8, rx: 2, fill: `var(--${a.who})` }, g);
+    const t = el("text", { class: "atitle", x: x + 28, y: y + 25, id: "t-" + id }, g); t.textContent = a.title;
+    const s = el("text", { class: "asub", x: x + 14, y: y + 43, id: "s-" + id }, g); s.textContent = a.sub;
+    if (id === "server") {
+      el("line", { x1: x + 14, x2: x + w - 14, y1: y + 56, y2: y + 56, stroke: "var(--line)" }, g);
+      const tg = el("text", { class: "tag", x: x + 14, y: y + 74 }, g); tg.textContent = "GRANTS FOR JOHN";
+      el("text", { class: "ledger", x: x + 14, y: y + 93, id: "ledger" }, g);
+      el("text", { class: "decide", x: x + 14, y: y + 118, id: "decide" }, g);
+      const off = el("text", { class: "offline", x: x + w / 2, y: y + h + 18, "text-anchor": "middle", id: "srvnote" }, svg);
+      off.textContent = "not involved in the conversation";
+    }
+    if (id === "jphone") {
+      const q = L.qr, qx = x + w - q - 12, qy = y + h - q - 10;
+      const qg = el("g", { id: "qr" }, g);
+      el("rect", { class: "qrbg", x: qx - 2, y: qy - 2, width: q + 4, height: q + 4 }, qg);
+      const n = 21, c = q / n, r = rng(4242);
+      const finder = (i, j) => { for (const [fi, fj] of [[0, 0], [14, 0], [0, 14]]) { const di = i - fi, dj = j - fj; if (di >= 0 && di < 7 && dj >= 0 && dj < 7) return (di === 0 || di === 6 || dj === 0 || dj === 6 || (di > 1 && di < 5 && dj > 1 && dj < 5)) ? 1 : 0; } return -1; };
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const f = finder(i, j); const on = f === -1 ? r() > 0.52 : f === 1;
+        if (on) el("rect", { class: "qrcell", x: qx + i * c, y: qy + j * c, width: c + 0.2, height: c + 0.2 }, qg);
+      }
+      const u = el("text", { class: "used", x: qx + q / 2, y: qy + q / 2 + 4, "text-anchor": "middle", id: "qrused" }, qg); u.textContent = "USED";
+    }
+    if (id === "sphone") {
+      // the confirmation screen Sarah's app shows before redeeming
+      const cx = x + 12, cy = y + 50, cw = w - 24, ch = h - 58;
+      const cg = el("g", { id: "confirm" }, g);
+      el("rect", { class: "card", x: cx, y: cy, width: cw, height: ch, rx: 8 }, cg);
+      const r1 = cy + ch * 0.3, r2 = cy + ch * 0.58, r3 = cy + ch * 0.86;
+      el("text", { class: "cardn", x: cx + 10, y: r1, id: "card1" }, cg);
+      el("text", { class: "cardh", x: cx + 10, y: r2, id: "card2" }, cg);
+      el("text", { class: "cardm", x: cx + 10, y: r3, id: "card3" }, cg);
+      el("rect", { class: "chip", id: "chipbg", y: r1 - 11, height: 15, rx: 7.5 }, cg);
+      el("text", { class: "chipt", id: "chipt", y: r1 - 0.2, "text-anchor": "middle" }, cg);
+      cg.dataset.right = cx + cw - 8;
+    }
+  }
+  el("g", { id: "pkts" }, svg);
+}
+
+function applyState(i) {
+  const st = STEPS[i];
+  for (const id in ACTORS) {
+    const g = $("a-" + id), on = st.active.includes(id);
+    g.classList.toggle("on", on);
+    g.classList.toggle("dim", !on || (id === "server" && st.serverDim));
+  }
+  for (const name in L.paths) {
+    const c = $("c-" + name), on = st.paths.includes(name);
+    c.classList.toggle("on", on); c.classList.toggle("off", !on);
+  }
+  $("t-sphone").textContent = st.sLabel || ACTORS.sphone.title;
+  $("s-sphone").textContent = st.sSub || ACTORS.sphone.sub;
+  $("ledger").textContent = st.ledgerText || (st.ledger === undefined ? "none yet" : `Sarah  hid:Zr8L… → ${st.ledger}`);
+  $("decide").textContent = st.decide || "";
+  $("srvnote").style.opacity = st.serverDim ? 1 : 0;
+  const qr = $("qr");
+  qr.style.opacity = st.qr === "on" ? 1 : st.qr === "used" ? 0.35 : 0;
+  $("qrused").style.opacity = st.qr === "used" ? 1 : 0;
+
+  const cg = $("confirm"), card = CARDS[st.confirm];
+  cg.style.opacity = card ? 1 : 0;
+  if (card) {
+    card.rows.forEach((r, k) => { $("card" + (k + 1)).textContent = r; });
+    const t = $("chipt"), b = $("chipbg"), right = +cg.dataset.right;
+    t.textContent = card.chip || "";
+    b.style.display = t.style.display = card.chip ? "" : "none";
+    if (card.chip) {
+      const cw = (t.getComputedTextLength ? t.getComputedTextLength() : card.chip.length * 5.5) + 16;
+      b.setAttribute("width", cw); b.setAttribute("x", right - cw);
+      t.setAttribute("x", right - cw / 2);
+      b.classList.toggle("done", !!card.done);
+    }
+  }
+  $("pkts").innerHTML = "";
+
+  $("kicker").textContent = `Step ${i + 1} of ${STEPS.length} · ${st.when}`;
+  $("title").textContent = st.t;
+  $("body").textContent = st.body;
+  const ul = $("checks"); ul.innerHTML = "";
+  (st.checks || []).forEach((c, k) => { const li = document.createElement("li"); li.textContent = c; li.style.animationDelay = (0.3 + k * 0.25) + "s"; ul.appendChild(li); });
+  $("codeLabel").textContent = st.codeLabel;
+  $("code").innerHTML = hl(st.code);
+  [...$("dots").children].forEach((d, k) => { d.classList.toggle("cur", k === i); d.classList.toggle("done", k < i); d.setAttribute("aria-current", k === i ? "step" : "false"); });
+}
+
+/* ---------- motion ---------- */
+const wait = (ms, tok) => new Promise(res => { const t0 = performance.now(); const f = now => { if (tok !== runTok) return res(false); if (now - t0 >= ms) return res(true); requestAnimationFrame(f); }; requestAnimationFrame(f); });
+
+function makePacket(p) {
+  const g = el("g", { class: "pkt", opacity: p.ghost ? 0.6 : 1 }, $("pkts"));
+  const r = el("rect", { rx: 11, height: 22, fill: `var(--${p.who})` }, g);
+  const t = el("text", { "text-anchor": "middle", y: 4 }, g); t.textContent = p.label;
+  const w = (t.getComputedTextLength ? t.getComputedTextLength() : p.label.length * 6) + 20;
+  r.setAttribute("width", w); r.setAttribute("x", -w / 2); r.setAttribute("y", -11);
+  g._half = w / 2 + 3;
+  return g;
+}
+function along(pts, f) {
+  const seg = []; let total = 0;
+  for (let k = 1; k < pts.length; k++) { const d = Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]); seg.push(d); total += d; }
+  let target = f * total;
+  for (let k = 0; k < seg.length; k++) {
+    if (target <= seg[k] || k === seg.length - 1) { const u = seg[k] ? Math.min(1, target / seg[k]) : 1; return [pts[k][0] + (pts[k + 1][0] - pts[k][0]) * u, pts[k][1] + (pts[k + 1][1] - pts[k][1]) * u, total]; }
+    target -= seg[k];
+  }
+}
+// keep the whole pill inside the drawing, even where a path hugs the edge
+function place(g, pts, f) {
+  const [x, y] = along(pts, f);
+  const cx = Math.max(g._half, Math.min(L.vb[0] - g._half, x));
+  g.setAttribute("transform", `translate(${cx},${y})`);
+}
+function park(p) { if (p) place(makePacket(p), L.paths[p.path], 1); }
+
+async function fly(p, tok) {
+  const pts = L.paths[p.path], g = makePacket(p);
+  const total = along(pts, 1)[2];
+  const dur = reduce ? 0 : Math.max(1100, total * 3.2);
+  const ease = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+  const t0 = performance.now();
+  await new Promise(res => {
+    const f = now => {
+      if (tok !== runTok) return res();
+      const u = dur ? Math.min(1, (now - t0) / dur) : 1;
+      place(g, pts, ease(u));
+      u < 1 ? requestAnimationFrame(f) : res();
+    };
+    requestAnimationFrame(f);
+  });
+  if (!(await wait(reduce ? 900 : 450, tok))) return false;
+  g.style.transition = "opacity .35s"; g.style.opacity = 0;
+  return wait(350, tok);
+}
+
+function setBar(ms) {
+  const b = $("bar");
+  b.style.transition = "none"; b.style.width = "0";
+  if (ms > 0) { void b.offsetWidth; b.style.transition = `width ${ms}ms linear`; b.style.width = "100%"; }
+}
+
+async function run(i) {
+  const tok = ++runTok;
+  cur = i; applyState(i); setBar(0);
+  if (!(await wait(500, tok))) return;
+  for (const p of STEPS[i].packets) { if ((await fly(p, tok)) === false) return; }
+  if (tok !== runTok) return;
+  // leave the last message parked at its destination so the frame reads at rest
+  park(STEPS[i].packets.at(-1));
+  if (!playing || i === STEPS.length - 1) { if (i === STEPS.length - 1) { playing = false; syncPlay(); } return; }
+  const dwell = 3200 + STEPS[i].body.length * 22;
+  setBar(dwell);
+  if (await wait(dwell, tok)) run(i + 1);
+}
+
+/* ---------- controls ---------- */
+function syncPlay() { $("play").textContent = playing ? "Pause" : "Play"; }
+const dots = $("dots");
+STEPS.forEach((s, k) => { const b = document.createElement("button"); b.className = "dot"; b.type = "button"; b.textContent = k + 1; b.title = s.t; b.setAttribute("aria-label", `Step ${k + 1}: ${s.t}`); b.onclick = () => run(k); dots.appendChild(b); });
+$("prev").onclick = () => run(Math.max(0, cur - 1));
+$("next").onclick = () => run(Math.min(STEPS.length - 1, cur + 1));
+$("restart").onclick = () => { playing = true; syncPlay(); run(0); };
+$("play").onclick = () => {
+  playing = !playing; syncPlay();
+  if (playing) run(cur === STEPS.length - 1 ? 0 : cur + 1);
+  else { runTok++; setBar(0); applyState(cur); park(STEPS[cur].packets.at(-1)); }
+};
+document.addEventListener("keydown", e => {
+  if (e.target.closest && e.target.closest("button") && e.key === " ") return;
+  if (e.key === "ArrowRight") $("next").click();
+  else if (e.key === "ArrowLeft") $("prev").click();
+  else if (e.key === " ") { e.preventDefault(); $("play").click(); }
+});
+let rz;
+window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { const n = svg.parentElement.clientWidth < 620 ? "narrow" : "wide"; if (n !== layoutName) { buildStage(); run(cur); } }, 150); });
+
+syncPlay();
+buildStage();
+applyState(0);
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => run(0));
+</script>
+
+</body></html>
