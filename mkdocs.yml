@@ -1,0 +1,49 @@
+# Project information
+site_name: HASHI
+site_description: >-
+  HASHI (Human Agent Secure Handshake Identity) gives people an address their
+  AI agents can be reached at, and decides who gets through.
+site_dir: site
+repo_url: https://github.com/hashi-specification/HASHI
+edit_uri: edit/main/docs/
+
+exclude_docs: |
+  README.md
+
+nav:
+  - Home: index.md
+  - Documentation:
+      - What is HASHI?: topics/what-is-hashi.md
+      - Key Concepts: topics/key-concepts.md
+      - HASHI and A2A: topics/hashi-and-a2a.md
+  - Specification: specification.md
+  - Community:
+      - Roadmap: roadmap.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences

@@ -1,0 +1,542 @@
+openapi: 3.1.0
+info:
+  title: HASHI Server API
+  version: 0.1.0
+  summary: Human Agent Secure Handshake Identity - resolution, redeem and knock.
+  description: |
+    Companion to the HASHI Specification, version 0.1. HASHI is signalling
+    only: it authenticates, applies trust levels (0-9), selects a protocol
+    and hands over. Agent conversations happen elsewhere.
+
+    Authentication: every operation except resolveHashi MUST carry HTTP
+    Message Signatures (RFC 9421) made with the requester's key, covering
+    @method, @target-uri, created and (with a body) content-digest; knocks
+    also cover hashi-grant and hashi-delegation when present. The
+    delegation's iss MUST equal the HID of the claimed hashi
+    (requester.hashi on redeem, from on knock).
+    Every requester has a hashi, signs with its agent key and sends its
+    agent delegation in Hashi-Delegation. OpenAPI cannot express RFC 9421, so
+    the headers are listed as parameters; verification rules are in the
+    specification.
+
+    Network rules: HTTPS only, no redirects, no connections to
+    non-globally-reachable addresses, responses capped at 64 KiB.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: https://{domain}
+    description: Domain hosting the well-known hashi document.
+    variables:
+      domain:
+        default: my.domain
+  - url: https://{endpoint}
+    description: HASHI server endpoint, as given in the hashi document.
+    variables:
+      endpoint:
+        default: hashi.my.domain/v1
+
+paths:
+  /.well-known/hashi/{local}:
+    get:
+      operationId: resolveHashi
+      summary: Resolve a hashi to its hashi document.
+      description: |
+        Clients MUST NOT follow redirects. This path is also the HTTPS link
+        form used in QR codes; a browser request (Accept: text/html) gets the
+        owner's human-facing page instead. Offers ride in the URI fragment and
+        are never sent to the server.
+      servers:
+        - url: https://{domain}
+          variables:
+            domain:
+              default: my.domain
+      parameters:
+        - name: local
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/LocalPart'
+      responses:
+        '200':
+          description: Hashi document.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/HashiDocument'
+        '404':
+          description: No such hashi.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /redeem:
+    post:
+      operationId: redeemOffer
+      summary: Redeem an offer or short code and receive a grant.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/ContentDigest'
+        - $ref: '#/components/parameters/HashiDelegation'
+      requestBody:
+        required: true
+        content:
+          application/hashi+json:
+            schema:
+              $ref: '#/components/schemas/RedeemRequest'
+      responses:
+        '200':
+          description: Grant recorded.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/RedeemResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '410':
+          description: Offer or code already used or expired.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /knock:
+    post:
+      operationId: knock
+      summary: Request to reach the owner's agent; returns a handover.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/ContentDigest'
+        - $ref: '#/components/parameters/HashiDelegation'
+        - name: Hashi-Grant
+          in: header
+          required: false
+          description: Grant JWS. Optional; the server's grant record is authoritative.
+          schema:
+            $ref: '#/components/schemas/JWS'
+      requestBody:
+        required: true
+        content:
+          application/hashi+json:
+            schema:
+              $ref: '#/components/schemas/KnockRequest'
+      responses:
+        '200':
+          description: "yeah: accepted; handover follows."
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/KnockAccepted'
+        '202':
+          description: "yeah-nah: waiting on the owner."
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/KnockPending'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: "nah: not accepted. No reason given; every nah is identical."
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/KnockRejected'
+        '406':
+          description: No common handover protocol.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/KnockNoCommonProtocol'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /knock/{knockId}:
+    get:
+      operationId: pollKnock
+      summary: Poll a pending knock. MUST be signed by the same key as the original knock.
+      parameters:
+        - name: knockId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_-]{1,64}$'
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/HashiDelegation'
+      responses:
+        '200':
+          description: Decided; accepted with handover.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/KnockAccepted'
+        '202':
+          description: Still pending.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/KnockPending'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Rejected, or signed by a different key from the original knock.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/KnockRejected'
+        '404':
+          description: Unknown or expired knock.
+        '400':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /introspect:
+    post:
+      operationId: introspectCredential
+      summary: OPTIONAL. Check whether a handover credential is still active (RFC 7662 style).
+      description: Only agents holding a valid delegation from the same owner may call this.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/ContentDigest'
+        - name: Hashi-Delegation
+          in: header
+          required: true
+          description: Calling agent's delegation from the same owner.
+          schema:
+            $ref: '#/components/schemas/JWS'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Introspection result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [active]
+                properties:
+                  active:
+                    type: boolean
+                  lvl:
+                    $ref: '#/components/schemas/TrustLevel'
+                  exp:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Caller is not an agent of this owner.
+        '400':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+components:
+  parameters:
+    SignatureInput:
+      name: Signature-Input
+      in: header
+      required: true
+      description: RFC 9421 signature input.
+      schema:
+        type: string
+    Signature:
+      name: Signature
+      in: header
+      required: true
+      description: RFC 9421 signature.
+      schema:
+        type: string
+    ContentDigest:
+      name: Content-Digest
+      in: header
+      required: true
+      description: RFC 9530 content digest of the request body.
+      schema:
+        type: string
+    HashiDelegation:
+      name: Hashi-Delegation
+      in: header
+      required: true
+      description: Agent delegation JWS (contains the agent public key).
+      schema:
+        $ref: '#/components/schemas/JWS'
+  responses:
+    RateLimited:
+      description: Rate limited.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/hashi+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthenticated:
+      description: Signature, delegation or key missing or invalid.
+      content:
+        application/hashi+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error:
+      description: Malformed request.
+      content:
+        application/hashi+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    LocalPart:
+      type: string
+      pattern: '^[a-z0-9._-]{1,64}$'
+
+    Hashi:
+      type: string
+      description: Canonical hashi, local#domain, lowercase.
+      pattern: '^[a-z0-9._-]{1,64}#[a-z0-9.-]{1,253}$'
+      examples: ['john#my.domain']
+
+    HID:
+      type: string
+      pattern: '^hid:[A-Za-z0-9_-]{43}$'
+
+    TrustLevel:
+      type: integer
+      minimum: 0
+      maximum: 9
+      description: 0 = public, 9 = highest. 1-8 are owner-defined.
+
+    DisplayName:
+      type: string
+      maxLength: 128
+      description: |
+        Presentation only. NFC-normalised, no Cc/Cf characters. MUST NOT be
+        used as an identity or trust signal.
+
+    JWS:
+      type: string
+      description: Compact JWS.
+      pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+
+    PublicJWK:
+      description: Ed25519 (EdDSA) or P-256 (ES256) public key.
+      oneOf:
+        - type: object
+          required: [kty, crv, x]
+          properties:
+            kty:
+              const: OKP
+            crv:
+              const: Ed25519
+            x:
+              type: string
+            kid:
+              type: string
+        - type: object
+          required: [kty, crv, x, y]
+          properties:
+            kty:
+              const: EC
+            crv:
+              const: P-256
+            x:
+              type: string
+            y:
+              type: string
+            kid:
+              type: string
+
+    ProtocolName:
+      type: string
+      description: name/version, for example a2a/1.0.
+      pattern: '^[a-z0-9-]+/[A-Za-z0-9._-]+$'
+
+    Intent:
+      type: string
+      description: Routing token only; never free text. Unknown values are ignored.
+      pattern: '^[a-z][a-z0-9-]{0,31}$'
+
+    HttpsUrl:
+      type: string
+      format: uri
+      pattern: '^https://'
+
+    HashiDocument:
+      type: object
+      required: [version, hashi, hid, epoch, identity_key, binding, fresh, endpoint, rotations, revoked]
+      description: Every field except binding, fresh and rotations is covered by the identity-signed binding.
+      properties:
+        version:
+          type: string
+          examples: ['0.1']
+        hashi:
+          $ref: '#/components/schemas/Hashi'
+        display_name:
+          $ref: '#/components/schemas/DisplayName'
+        hid:
+          $ref: '#/components/schemas/HID'
+        epoch:
+          type: integer
+          minimum: 0
+          description: Monotonic; clients reject documents with an epoch lower than the one pinned.
+        identity_key:
+          $ref: '#/components/schemas/PublicJWK'
+        binding:
+          $ref: '#/components/schemas/JWS'
+        fresh:
+          $ref: '#/components/schemas/JWS'
+          description: Server-key-signed {hid, epoch, iat}, re-signed at least hourly; rejected if older than 24 hours.
+        endpoint:
+          $ref: '#/components/schemas/HttpsUrl'
+        level0:
+          type: object
+          properties:
+            accept:
+              type: boolean
+              default: false
+        protocols:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProtocolName'
+        rotations:
+          type: array
+          description: Rotation chain, oldest first.
+          items:
+            $ref: '#/components/schemas/JWS'
+        revoked:
+          type: array
+          description: jti values of revoked, unexpired device and agent delegations.
+          items:
+            type: string
+
+    RedeemRequest:
+      type: object
+      required: [requester]
+      properties:
+        offer:
+          $ref: '#/components/schemas/JWS'
+        code:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Z]{4}-?[0-9A-HJKMNP-TV-Z]{4}$'
+        to:
+          $ref: '#/components/schemas/Hashi'
+        requester:
+          type: object
+          description: The requester's own hashi.
+          required: [hashi]
+          properties:
+            hashi:
+              $ref: '#/components/schemas/Hashi'
+          additionalProperties: false
+      oneOf:
+        - required: [offer]
+        - required: [code, to]
+
+    RedeemResponse:
+      type: object
+      required: [grant, level]
+      properties:
+        grant:
+          $ref: '#/components/schemas/JWS'
+        level:
+          $ref: '#/components/schemas/TrustLevel'
+
+    KnockRequest:
+      type: object
+      required: [to, from, protocols]
+      additionalProperties: false
+      description: Knocks carry no free-text fields.
+      properties:
+        to:
+          $ref: '#/components/schemas/Hashi'
+        from:
+          $ref: '#/components/schemas/Hashi'
+        intent:
+          $ref: '#/components/schemas/Intent'
+        protocols:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/ProtocolName'
+
+    Handover:
+      type: object
+      required: [protocol, endpoint, credential, expires_at]
+      properties:
+        protocol:
+          $ref: '#/components/schemas/ProtocolName'
+        endpoint:
+          $ref: '#/components/schemas/HttpsUrl'
+        credential:
+          type: string
+          description: Binding-defined, key-bound, audience-restricted, expires within 15 minutes.
+        expires_at:
+          type: string
+          format: date-time
+
+    KnockAccepted:
+      type: object
+      required: [result, level, handover]
+      properties:
+        result:
+          const: 'yeah'
+        level:
+          $ref: '#/components/schemas/TrustLevel'
+        handover:
+          $ref: '#/components/schemas/Handover'
+
+    KnockPending:
+      type: object
+      required: [result, id, retry_after]
+      properties:
+        result:
+          const: yeah-nah
+        id:
+          type: string
+          description: Poll at {endpoint}/knock/{id}.
+        retry_after:
+          type: integer
+          minimum: 1
+
+    KnockRejected:
+      type: object
+      required: [result]
+      properties:
+        result:
+          const: 'nah'
+      additionalProperties: false
+      description: Carries no reason; identical however it was reached.
+
+    KnockNoCommonProtocol:
+      type: object
+      required: [result]
+      properties:
+        result:
+          const: no_common_protocol
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
