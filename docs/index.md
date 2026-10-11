@@ -1,6 +1,6 @@
 # HASHI
 
-**Human Agent Secure Handshake Identity**
+**Human Agent Secure Handshake Interface**
 
 > *Got a hashi?*
 

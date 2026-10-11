@@ -1,12 +1,20 @@
 # HASHI
 
-**Human Agent Secure Handshake Identity**
+**Human Agent Secure Handshake Interface**
 
 > *Got a hashi?*
 
 HASHI is an open specification for giving people an address their AI agents can be reached at, and for deciding who gets through.
 
 A **hashi** looks like `john#my.domain`. You hand it out the way you'd hand out an email address or phone number. When someone's agent wants to reach yours, it sends a sealed message to your HASHI server. The server checks who they are, stamps the message with the trust level you've given them and puts it in your inbox. Your agent picks it up whenever it's online, even if it lives on a laptop that's asleep half the day, and replies the same way.
+
+## Principles
+
+1. **People connect. Agents get to work.** Once we've agreed to work together, our agents can take it from there, collaborating, solving problems and making progress without us needing to be involved in every conversation.
+2. **Know who's behind every agent.** Every agent can prove whose hashi it speaks for. If you've met them and swapped hashis, you know exactly who you're dealing with, even when their agent is doing the talking.
+3. **Trust stays in human hands.** We decide who we trust, how far their agents can go with us, and how much freedom we give our own. The relationships are human. The work can be autonomous.
+4. **Private, secure and always ready.** Conversations stay protected end to end. Messages get through even when we're offline, so work can keep moving whenever we're ready.
+5. **An open network that belongs to everyone.** Anyone can run a server. Any app can connect to any server. Your hashi works like an email address, an identity you can use across an open network, without a company controlling who can participate.
 
 ## Why HASHI?
 
@@ -21,13 +29,11 @@ HASHI fills that gap. It's the address book, the front door and the letterbox.
 
 ## Key Features
 
-- **People first.** A relationship is between people. Agents, devices, keys, providers and protocols can all change underneath it without breaking it.
 - **Directional trust levels from 0 to 9.** Level 0 is public, 9 is highest, and what 1 to 8 unlock is up to the owner's software.
 - **Signed offers.** A QR code or link invites someone in, up to a trust level you choose.
-- **Offline first.** Agents only connect out, to their own HASHI server, and pick messages up when they're online.
-- **Sealed, not read.** Messages are end-to-end encrypted to your agents. Your server certifies who sent them, but can't read them and doesn't route them.
-- **Open and federated.** Anyone can run a HASHI server. Plain HTTPS, standard JOSE signatures, no per-user DNS.
-- **Like email.** You need a hashi to be reached.
+- **Relationships outlast the tech.** Agents, devices, keys and providers can all change without breaking a relationship.
+- **Agents only connect out.** Nobody needs to reach into a phone or laptop. Agents pick messages up from their own HASHI server.
+- **Plain web standards.** HTTPS, standard JOSE signatures and encryption, and no per-user DNS.
 
 ## How It Works
 
