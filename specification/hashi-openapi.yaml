@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: HASHI Server API
   version: 0.1.0
-  summary: Human Agent Secure Handshake Identity - resolution, redeem, sealed messages and the inbox.
+  summary: Human Agent Secure Handshake Interface - resolution, redeem, sealed messages and the inbox.
   description: |
     Companion to the HASHI Specification, version 0.1. HASHI gives people an
     address, records trust levels (0-9) and carries end-to-end encrypted
@@ -11,20 +11,24 @@ info:
     The recipient's agents pick it up when they come online. The server
     can't read messages and doesn't route them.
 
-    Authentication: every operation except resolveHashi MUST carry HTTP
+    Authentication: every operation except resolveHashi and
+    publishDocument MUST carry HTTP
     Message Signatures (RFC 9421) made with the caller's agent or device
     key, covering @method, @target-uri, created and (with a body)
     content-digest; sends also cover hashi-grant, hashi-reply and
     hashi-delegation when present. The caller sends its delegation in
     Hashi-Delegation. On redeem and send, the delegation's iss MUST equal
     the HID of the claimed hashi (requester.hashi on redeem, from on send).
-    On inbox operations, the delegation MUST belong to the inbox's owner.
+    On inbox and grants operations, the delegation MUST belong to the
+    owner. Grants calls MUST be rejected if created is over 5 minutes old
+    or a request with the same signature base was seen before.
     OpenAPI cannot express RFC 9421, so the headers are listed as
     parameters; verification rules are in the specification.
 
     Network rules: HTTPS only, no redirects, no connections to
     non-globally-reachable addresses, requests and responses capped at
-    64 KiB.
+    64 KiB, except responses from the owner's own server to inbox and
+    grants calls.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -334,6 +338,120 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /document:
+    put:
+      operationId: publishDocument
+      summary: Publish a new version of the owner's hashi document.
+      description: |
+        Self-authorising: the identity-signed binding is the authorisation,
+        so no HTTP signature or delegation is used. The server accepts the
+        document only if it verifies, is for a hashi hosted here with this
+        server's endpoint, binds this server's current key or its srv_next and, when a document is
+        already held, has the same HID, a higher epoch and a rotation chain
+        extending the held one. Whether a first publish is accepted is server
+        policy; a reset (new HID) is not done through this call.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/hashi+json:
+            schema:
+              $ref: '#/components/schemas/PublishRequest'
+      responses:
+        '200':
+          description: Stored. The document as now served, fresh included.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/HashiDocument'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          description: First publish not allowed by server policy, or the document isn't for this server (hashi, endpoint or binding srv).
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The epoch isn't higher, the rotation chain doesn't extend the held one, or the HID differs.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /grants:
+    get:
+      operationId: listGrants
+      summary: List the grants the owner has given, and refused HIDs. Any of the owner's agents or devices.
+      description: Not subject to the 64 KiB response cap, as it comes from the owner's own server.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/HashiDelegation'
+      responses:
+        '200':
+          description: The owner's grants.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/GrantList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /grants/{hid}:
+    put:
+      operationId: lowerGrant
+      summary: Lower or remove a grant, or refuse a HID. One of the owner's devices only.
+      description: |
+        The level MUST NOT be higher than the recorded one (0 if none);
+        raising needs a new offer. Level 0 removes the grant. refuse true
+        sets the level to 0 and refuses the HID (its messages get nah, its
+        redemptions are answered as expired); false lifts a refusal without
+        granting anything; omitted keeps the setting.
+      parameters:
+        - name: hid
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/HID'
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/ContentDigest'
+        - $ref: '#/components/parameters/HashiDelegation'
+      requestBody:
+        required: true
+        content:
+          application/hashi+json:
+            schema:
+              $ref: '#/components/schemas/LowerGrant'
+      responses:
+        '200':
+          description: The entry as now recorded.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Grant'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: The level is higher than the recorded one.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
 components:
   parameters:
     SignatureInput:
@@ -478,10 +596,73 @@ components:
       format: uri
       pattern: '^https://'
 
+    Grant:
+      type: object
+      required: [hid, level, refused, updated]
+      properties:
+        hid:
+          $ref: '#/components/schemas/HID'
+        hashi:
+          $ref: '#/components/schemas/Hashi'
+        level:
+          $ref: '#/components/schemas/TrustLevel'
+        refused:
+          type: boolean
+        updated:
+          type: integer
+          description: When the entry last changed or an offer was last redeemed for it (seconds since the epoch).
+
+    GrantList:
+      type: object
+      required: [grants]
+      properties:
+        grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Grant'
+
+    LowerGrant:
+      type: object
+      required: [level]
+      properties:
+        level:
+          $ref: '#/components/schemas/TrustLevel'
+        refuse:
+          type: boolean
+
+    PublishRequest:
+      type: object
+      required: [version, hashi, hid, epoch, identity_key, binding, endpoint, agents, rotations, revoked]
+      description: A hashi document without fresh, which the server adds.
+      properties:
+        version:
+          $ref: '#/components/schemas/HashiDocument/properties/version'
+        hashi:
+          $ref: '#/components/schemas/HashiDocument/properties/hashi'
+        display_name:
+          $ref: '#/components/schemas/HashiDocument/properties/display_name'
+        hid:
+          $ref: '#/components/schemas/HashiDocument/properties/hid'
+        epoch:
+          $ref: '#/components/schemas/HashiDocument/properties/epoch'
+        identity_key:
+          $ref: '#/components/schemas/HashiDocument/properties/identity_key'
+        binding:
+          $ref: '#/components/schemas/HashiDocument/properties/binding'
+        endpoint:
+          $ref: '#/components/schemas/HashiDocument/properties/endpoint'
+        level0:
+          $ref: '#/components/schemas/HashiDocument/properties/level0'
+        agents:
+          $ref: '#/components/schemas/HashiDocument/properties/agents'
+        rotations:
+          $ref: '#/components/schemas/HashiDocument/properties/rotations'
+        revoked:
+          $ref: '#/components/schemas/HashiDocument/properties/revoked'
     HashiDocument:
       type: object
       required: [version, hashi, hid, epoch, identity_key, binding, fresh, endpoint, agents, rotations, revoked]
-      description: Every field except binding, fresh and rotations is covered by the identity-signed binding.
+      description: Every field except binding, fresh, rotations and srv_next is covered by the identity-signed binding.
       properties:
         version:
           type: string
@@ -502,7 +683,7 @@ components:
           $ref: '#/components/schemas/JWS'
         fresh:
           $ref: '#/components/schemas/JWS'
-          description: Server-key-signed {hid, epoch, iat}, re-signed at least hourly; rejected if older than 24 hours.
+          description: Server-key-signed {hid, epoch, iat, srv_next when the server is changing key}, re-signed at least hourly; rejected if older than 24 hours.
         endpoint:
           $ref: '#/components/schemas/HttpsUrl'
         level0:
@@ -526,6 +707,9 @@ components:
           description: jti values of revoked, unexpired device and agent delegations.
           items:
             type: string
+        srv_next:
+          $ref: '#/components/schemas/PublicJWK'
+          description: The server key this server will move to. Set by the server and not covered by the binding. The owner's app acts on it only when the same value is inside a fresh signed by the current server key, and SHOULD then publish a binding whose srv is this key.
 
     RedeemRequest:
       type: object

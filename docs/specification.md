@@ -1,6 +1,6 @@
 # HASHI Specification
 
-**Human Agent Secure Handshake Identity**
+**Human Agent Secure Handshake Interface**
 
 - **Version:** 0.1 (draft)
 - **Status:** Experimental
@@ -207,12 +207,13 @@ Accept: application/hashi+json
 | `agents` | JWS[] | Yes | Delegations of the agents that receive the owner's messages ([Section 5.3](#53-delegation-certificates)). New messages are sealed to every agent listed here. |
 | `rotations` | JWS[] | Yes | Rotation chain, oldest first. Empty if never rotated. |
 | `revoked` | string[] | Yes | `jti` values of revoked, unexpired delegations. |
+| `srv_next` | JWK | No | The server key this server will move to. Set by the server and not covered by the binding ([Section 4.6](#46-changing-the-server-key)). |
 
 ### 4.3 The Binding
 
 The binding is how the owner, rather than whoever hosts the domain, vouches for everything in the document.
 
-Its payload contains **every field of the document except `binding`, `fresh` and `rotations`**, plus:
+Its payload contains **every field of the document except `binding`, `fresh`, `rotations` and `srv_next`**, plus:
 
 | Field | Description |
 |-------|-------------|
@@ -239,9 +240,20 @@ On first success, the verifier pins the HID, the identity key and the epoch. The
 
 Pinning protects only a verifier that has already seen the latest epoch. Freshness limits how long a stale document can fool one that hasn't.
 
-- The HASHI server **MUST** serve `fresh`: a JWS signed by the server key with payload `{ "hid", "epoch", "iat" }`, re-signed at least every hour.
+- The HASHI server **MUST** serve `fresh`: a JWS signed by the server key with payload `{ "hid", "epoch", "iat" }`, re-signed at least every hour. While the server is changing its key, the payload also carries `srv_next` ([Section 4.6](#46-changing-the-server-key)); other verifiers ignore it.
 - Verifiers **MUST** reject a document whose `fresh` is older than 24 hours or whose epoch doesn't match.
 - Verifiers **MUST NOT** rely on a cached hashi document older than one hour when deciding a redeem or a send, or when sealing a message.
+
+### 4.6 Changing the Server Key
+
+The binding names one server key, `srv`, and only the owner's identity key can sign a binding, so a server can't change its key on its own. The protocol sets no expiry for it: each server decides when to change its key, for example on a schedule of its own or after a suspected compromise. To change it:
+
+1. The server generates a new key and serves it as `srv_next`, both in the hashi document and inside `fresh`, which its current key signs.
+2. When the owner's app sees a `srv_next` inside a `fresh` that verifies with the `srv` of the owner's current binding, it **SHOULD** publish ([Section 8.6](#86-publish)) a new binding whose `srv` is that key. It **MUST** ignore any other `srv_next`. This needs the identity key but no decision from the user, and until the app publishes, the server keeps using its current key.
+3. Once that publish is accepted, the server signs freshness statements, stamps and grant tokens with the new key, and stops serving `srv_next`. It **MUST** re-sign the stamps of messages still in the inbox, so the owner's agents can check every stamp against the key in the current binding.
+4. The server **MAY** go on accepting grant tokens it signed with its previous key. They are only evidence, and its own records decide ([Section 6.3](#63-effective-level)). A grant token the server doesn't accept is treated as absent, never as a reason for 401 or `nah`.
+
+A new server key **MUST** be newly generated, never a previous key reused.
 
 ---
 
@@ -327,7 +339,7 @@ A verifier **MUST** reject a delegation that:
 - is not signed by the current identity key; or
 - has an `epoch` lower than that of the most recent rotation. (A rotation therefore kills every earlier delegation, including any minted with a stolen key.)
 
-Verifiers **MUST** also check `role`: offers **MUST** be signed by a `device` delegation; redeems, messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages **MAY** be signed by either role ([Section 8.4](#84-the-inbox)).
+Verifiers **MUST** also check `role`: offers **MUST** be signed by a `device` delegation; redeems, messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages, and listing grants, **MAY** be signed by either role ([Section 8.4](#84-the-inbox), [Section 8.7](#87-grants)). Lowering a grant or refusing a HID **MUST** be signed by a `device` delegation.
 
 ### 5.4 Key Rotation
 
@@ -394,7 +406,7 @@ The server's record is authoritative, so lowering a grant takes effect at the ve
 
 Dropping someone to 0 puts them back among the strangers. If the owner doesn't accept level-0 messages, the server **MUST** answer `nah`, which makes it a complete block apart from replies the owner's own agents invited with a reply token.
 
-Implementations **MAY** refuse specific HIDs as a matter of owner policy, including replies from them. A refusal **MUST** look exactly like any other `nah`, so nobody can tell they've been singled out.
+The owner **MAY** refuse specific HIDs, including replies from them. The owner sets this with the grants call ([Section 8.7](#87-grants)). A refusal **MUST** look exactly like any other `nah`, so nobody can tell they've been singled out.
 
 ---
 
@@ -473,7 +485,7 @@ Where a QR code or link won't do, the HASHI server **MAY** issue a short code th
 
 ## 8. Protocol Operations
 
-All operations are HTTPS requests to the `endpoint` from the relevant hashi document: the recipient's for Redeem and Send, the agent's own for the inbox.
+All operations are HTTPS requests to the `endpoint` from the relevant hashi document: the recipient's for Redeem and Send, the owner's own for the inbox, Publish and grants.
 
 | Operation | Method and path | Who calls it | Purpose |
 |-----------|-----------------|--------------|---------|
@@ -485,16 +497,19 @@ All operations are HTTPS requests to the `endpoint` from the relevant hashi docu
 | Release | `POST {endpoint}/inbox/{id}/release` | The claiming agent, or a device | Put a message back in incoming. |
 | Delete | `DELETE {endpoint}/inbox/{id}` | The claiming agent, or a device | Remove a message. |
 | Wake | `GET` and `PUT {endpoint}/inbox/wake` | The owner's agents | See and register wake-up channels ([Section 8.5](#85-waking-agents)). |
+| Publish | `PUT {endpoint}/document` | The owner's app | Store a new version of the owner's hashi document ([Section 8.6](#86-publish)). |
+| List grants | `GET {endpoint}/grants` | The owner's agents and devices | See who the owner has granted a level to, or refused ([Section 8.7](#87-grants)). |
+| Lower grant | `PUT {endpoint}/grants/{hid}` | The owner's devices | Lower or remove a grant, or refuse a HID ([Section 8.7](#87-grants)). |
 
 ### 8.1 Request Signing
 
-Every request except Resolve **MUST** be signed with HTTP Message Signatures (RFC 9421), covering at least `@method`, `@target-uri`, `created` and, where there is a body, `content-digest` (RFC 9530). Sends **MUST** also cover `hashi-grant`, `hashi-reply` and `hashi-delegation` when present.
+Every request except Resolve and Publish **MUST** be signed with HTTP Message Signatures (RFC 9421), covering at least `@method`, `@target-uri`, `created` and, where there is a body, `content-digest` (RFC 9530). Sends **MUST** also cover `hashi-grant`, `hashi-reply` and `hashi-delegation` when present.
 
 | Caller | Signs with | Sends |
 |--------|-----------|-------|
 | Every caller | Agent or device key | `Hashi-Delegation`: its delegation JWS |
 
-The verifier **MUST** check that the delegation's `iss` equals the HID of the hashi the caller claims (`requester.hashi` on redeem, `from` on send), so nobody can redeem or send in someone else's name. For inbox operations, the delegation **MUST** belong to the owner of the inbox, which is identified by the delegation's `hashi`. The verifier resolves the caller's hashi document, subject to pinning and freshness, to check the delegation and the `revoked` list.
+The verifier **MUST** check that the delegation's `iss` equals the HID of the hashi the caller claims (`requester.hashi` on redeem, `from` on send), so nobody can redeem or send in someone else's name. For inbox and grants operations, the delegation **MUST** belong to the owner of the inbox, which is identified by the delegation's `hashi`. The verifier resolves the caller's hashi document, subject to pinning and freshness, to check the delegation and the `revoked` list.
 
 ### 8.2 Redeem
 
@@ -524,8 +539,9 @@ The server **MUST**:
 1. Check the request signature ([Section 8.1](#81-request-signing)).
 2. Check that the offer's `hashi` (or `to`) is a hashi it serves.
 3. Verify the offer ([Section 7.1](#71-the-offer-token)) and its expiry.
-4. For one-time offers, atomically mark the nonce as used.
-5. Record a grant against the redeemer's HID.
+4. If the owner has refused the redeemer's HID ([Section 8.7](#87-grants)), answer as for an expired offer (410) without marking the nonce as used.
+5. For one-time offers, atomically mark the nonce as used.
+6. Record a grant against the redeemer's HID.
 
 **Response:**
 
@@ -592,7 +608,7 @@ The server **MUST**:
 3. Work out the effective level ([Section 6.3](#63-effective-level)).
 4. If `Hashi-Reply` is present, check the reply token ([Section 9.4](#94-reply-tokens)). If it doesn't verify, answer `nah`.
 5. If the effective level is 0, there is no valid reply token and the owner doesn't accept level-0 messages, answer `nah` ([Section 6.4](#64-zero-is-zero)).
-6. Apply owner policy, which **MAY** refuse specific HIDs with `nah`. The server **MUST NOT** hold a message for the owner's approval or route it to a particular agent; that is for the owner's agents and apps.
+6. If the owner has refused the sender's HID ([Section 8.7](#87-grants)), answer `nah`. Other owner policy **MAY** also answer `nah`. The server **MUST NOT** hold a message for the owner's approval or route it to a particular agent; that is for the owner's agents and apps.
 7. If the effective level is 0 and there is no valid reply token, reject the message with HTTP 400 if it carries an `envelope`. Level-0 messages say who is asking and why (`intent`), and nothing else.
 8. Stamp the message ([Section 9.2](#92-the-stamp)) and add it to the owner's incoming queue.
 
@@ -663,7 +679,80 @@ How the notice travels is not fixed by this specification:
 
 For `webpush`, `params` is the agent's push subscription, and the push message **MUST** have an empty body.
 
-### 8.6 Errors
+### 8.6 Publish
+
+The owner's app changes its hashi document (display name, `level0`, `agents`, revocations or a rotation) by publishing the whole new document to its own server:
+
+```http
+PUT /v1/document HTTP/1.1
+Host: hashi.my.domain
+Content-Type: application/hashi+json
+
+{ ...the complete hashi document, without "fresh"... }
+```
+
+Publish is **self-authorising**. The binding, signed by the identity key, is the authorisation, so the request needs no login, delegation or HTTP signature. The server **MUST** accept the document only if:
+
+1. it verifies as in [Section 4.4](#44-verification-and-pinning), steps 1 and 2;
+2. its `hashi` is one this server hosts and its `endpoint` is this server's;
+3. the binding's `srv` is this server's current key or its `srv_next` ([Section 4.6](#46-changing-the-server-key)); and
+4. if the server already holds a document for that hashi, the new one has the same HID, a higher `epoch`, and a rotation chain that starts with every rotation in the held one.
+
+Because the held document can only be extended, a replayed or older document is always refused. After a rotation, the new identity key alone can publish, even if every delegation has been revoked or has expired.
+
+The server then adds `fresh` ([Section 4.5](#45-freshness)) and serves the new document from Resolve straight away.
+
+**First publish and reset.** When the server holds no document for the hashi, whether it accepts the first one is the server's own registration policy, like an email provider's sign-up rules. A reset ([Section 5.5](#55-lost-or-stolen)) is not done by Publish: rule 4 refuses a new HID while a document is held, so a server that allows resets first drops the held document under its own policy, and the new document is then a first publish. This specification doesn't define either.
+
+| Status | When |
+|--------|------|
+| 200 | Stored. The body is the document as now served, `fresh` included. |
+| 400 | The document is malformed or doesn't verify. |
+| 403 | First publish not allowed by this server's policy, or the document isn't for this server (its `hashi`, `endpoint` or binding `srv`). |
+| 409 | The epoch isn't higher than the held one, the rotation chain doesn't extend the held one, or the HID differs. |
+
+### 8.7 Grants
+
+The owner manages the grants it has given with two calls, signed like the inbox calls ([Section 8.1](#81-request-signing)) by a delegation belonging to the owner.
+
+**List.** `GET {endpoint}/grants` **MAY** be signed by a device or an agent delegation:
+
+```json
+{
+  "grants": [
+    {
+      "hid": "hid:Zr8L...",
+      "hashi": "sarah#example.org",
+      "level": 4,
+      "refused": false,
+      "updated": 1791270000
+    }
+  ]
+}
+```
+
+`hashi` is the hashi the grantee gave when redeeming or sending, if known. `updated` is when the entry last changed or an offer was last redeemed for it. Refused HIDs are listed with level 0 and `refused: true`. The 64 KiB response limit ([Section 11](#11-network-security)) doesn't apply to this list, which comes from the owner's own server. The owner's app finds out about a new redemption by listing.
+
+**Lower, remove or refuse.** `PUT {endpoint}/grants/{hid}` **MUST** be signed by a **device** delegation, because changing trust is the owner's own decision:
+
+```json
+{ "level": 0, "refuse": true }
+```
+
+- `level` **MUST NOT** be higher than the recorded one, taking 0 if there is none ([Section 6.2](#62-rules), rule 5). Setting 0 removes the grant.
+- `refuse` is optional. `true` refuses that HID from then on and sets its level to 0: its messages, replies included, get `nah` ([Section 6.4](#64-zero-is-zero)), and its redemptions are answered as if the offer had expired. `false` lifts a refusal without granting anything. Leaving it out keeps the current setting.
+- Changes apply to the very next request ([Section 6.3](#63-effective-level)).
+
+| Status | When |
+|--------|------|
+| 200 | Done. The body is the entry as now recorded. |
+| 401 | Missing or invalid signature or delegation. |
+| 403 | Not the owner's delegation, or an agent delegation tried to change a grant. |
+| 409 | `level` is higher than the recorded one. |
+
+Servers **MUST** reject a grants request whose signature `created` is more than 5 minutes old, and **MUST NOT** accept two requests with the same signature base (RFC 9421) within that window.
+
+### 8.8 Errors
 
 Problems that aren't decisions return an `error` body, not a `result`:
 
@@ -671,9 +760,9 @@ Problems that aren't decisions return an `error` body, not a `result`:
 |-------------|------|
 | 400 | Malformed request, a level-0 message with an envelope, or a request over 64 KiB. |
 | 401 | Missing or invalid signature, delegation or key. |
-| 403 | Inbox only: the caller isn't one of the owner's agents or devices, or isn't allowed that action. |
+| 403 | Inbox and grants: the caller isn't one of the owner's agents or devices, or isn't allowed that action. Publish: not allowed by this server's policy, or the document isn't for this server. |
 | 404 | Inbox only: no such message. |
-| 409 | Claim only: already claimed. |
+| 409 | Claim: already claimed. Publish: the document doesn't extend the held one. Grants: the level would rise. |
 | 410 | Redeem only: offer or code already used or expired. |
 | 429 | Rate limited. Includes `Retry-After`. |
 
@@ -715,7 +804,7 @@ Signing inside the encryption means the recipient knows who wrote the message ev
 
 An agent opening an envelope **MUST**:
 
-1. Verify the stamp ([Section 9.2](#92-the-stamp)) against the server key in its own owner's binding.
+1. Verify the stamp ([Section 9.2](#92-the-stamp)) against the server key in its own owner's binding. If it doesn't verify, re-resolve the owner's hashi document and list the message again ([Section 8.4](#84-the-inbox)), and reject it only if the stamp still doesn't verify ([Section 4.6](#46-changing-the-server-key)).
 2. Check that the stamp's `ct` matches the envelope's `ciphertext`.
 3. Decrypt, verify the inner JWS, and check that `dlg` chains to the HID in `iss` by resolving `from`.
 4. Check that `iss`, `from`, `to`, `thread` and `intent` match the stamp.
@@ -847,7 +936,7 @@ These rules apply to every URL a HASHI implementation fetches or hands out: hash
 - URLs **MUST** use HTTPS.
 - Implementations **MUST NOT** follow redirects on any HASHI request.
 - Unless the operator explicitly configures otherwise, clients and servers **MUST** refuse to connect to loopback, private, link-local or other non-globally-reachable addresses (RFC 6890). The check **MUST** be made on the resolved address at connection time, so DNS rebinding can't get around it.
-- Responses and requests larger than 64 KiB **MUST** be rejected.
+- Responses and requests larger than 64 KiB **MUST** be rejected. Responses from the owner's own server to its inbox and grants calls are exempt ([Section 8.4](#84-the-inbox), [Section 8.7](#87-grants)), so a full-size message can always be listed and claimed.
 
 Agents never need to accept inbound connections. They only connect out, to HASHI servers.
 
@@ -860,7 +949,7 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 | **Forgery and tampering** | Offers, grants, delegations, rotations, bindings, freshness statements, stamps, reply tokens and messages are all signed. |
 | **The server reading or altering messages** | Envelopes are encrypted end to end to the recipient's agents and signed inside by the sender's agent. The stamp binds the server's certificate to the ciphertext. |
 | **The server lying about trust** | The owner's server is trusted to certify levels to the owner's own agents, just as it is trusted to keep the owner's grants. It can't forge content or a sender's signature. |
-| **Replay** | One-time nonces are burnt on redemption. Signed requests carry `created`; servers **SHOULD** reject signatures older than 5 minutes and keep a short replay cache. Agents discard repeated message `jti` values. Epoch pinning and freshness stop replay of old hashi documents. |
+| **Replay** | One-time nonces are burnt on redemption. Signed requests carry `created`; servers **SHOULD** reject signatures older than 5 minutes and keep a short replay cache, and **MUST** do so for the grants calls ([Section 8.7](#87-grants)). Agents discard repeated message `jti` values. Epoch pinning and freshness stop replay of old hashi documents. |
 | **Spam and inbox flooding** | Only senders with a grant, or with a reply token from one of the owner's agents, can put content in an inbox. Level-0 messages carry no content. Messages are capped at 64 KiB, servers rate-limit per sender, and retention is at most 30 days. |
 | **Leaked or photographed offers** | Fragment carriage, short expiry and one-time use limit exposure. Owners **MUST** be notified when an offer is redeemed, showing who redeemed it, so a stolen redemption gets noticed on the spot and revoked. |
 | **Rogue apps claiming `hashi://`** | QR codes and shared links use the HTTPS form ([Section 7.2](#72-carrying-offers)), and the redeem notification shows the owner who actually redeemed. |
