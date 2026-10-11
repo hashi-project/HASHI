@@ -2,25 +2,29 @@ openapi: 3.1.0
 info:
   title: HASHI Server API
   version: 0.1.0
-  summary: Human Agent Secure Handshake Identity - resolution, redeem and knock.
+  summary: Human Agent Secure Handshake Identity - resolution, redeem, sealed messages and the inbox.
   description: |
-    Companion to the HASHI Specification, version 0.1. HASHI is signalling
-    only: it authenticates, applies trust levels (0-9), selects a protocol
-    and hands over. Agent conversations happen elsewhere.
+    Companion to the HASHI Specification, version 0.1. HASHI gives people an
+    address, records trust levels (0-9) and carries end-to-end encrypted
+    messages between agents. A sender's agent sends a sealed message to the
+    recipient's HASHI server, which checks trust, stamps it and queues it.
+    The recipient's agents pick it up when they come online. The server
+    can't read messages and doesn't route them.
 
     Authentication: every operation except resolveHashi MUST carry HTTP
-    Message Signatures (RFC 9421) made with the requester's key, covering
-    @method, @target-uri, created and (with a body) content-digest; knocks
-    also cover hashi-grant and hashi-delegation when present. The
-    delegation's iss MUST equal the HID of the claimed hashi
-    (requester.hashi on redeem, from on knock).
-    Every requester has a hashi, signs with its agent key and sends its
-    agent delegation in Hashi-Delegation. OpenAPI cannot express RFC 9421, so
-    the headers are listed as parameters; verification rules are in the
-    specification.
+    Message Signatures (RFC 9421) made with the caller's agent or device
+    key, covering @method, @target-uri, created and (with a body)
+    content-digest; sends also cover hashi-grant, hashi-reply and
+    hashi-delegation when present. The caller sends its delegation in
+    Hashi-Delegation. On redeem and send, the delegation's iss MUST equal
+    the HID of the claimed hashi (requester.hashi on redeem, from on send).
+    On inbox operations, the delegation MUST belong to the inbox's owner.
+    OpenAPI cannot express RFC 9421, so the headers are listed as
+    parameters; verification rules are in the specification.
 
     Network rules: HTTPS only, no redirects, no connections to
-    non-globally-reachable addresses, responses capped at 64 KiB.
+    non-globally-reachable addresses, requests and responses capped at
+    64 KiB.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -104,10 +108,16 @@ paths:
         '429':
           $ref: '#/components/responses/RateLimited'
 
-  /knock:
+  /messages:
     post:
-      operationId: knock
-      summary: Request to reach the owner's agent; returns a handover.
+      operationId: sendMessage
+      summary: Send a sealed message to an owner's inbox.
+      description: |
+        The server checks the sender's signature, grant or reply token,
+        stamps the message with the effective level and queues it in the
+        owner's incoming queue. It does not route or hold messages for
+        approval. Level-0 messages without a valid reply token MUST NOT carry
+        an envelope. The whole request MUST NOT exceed 64 KiB.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
@@ -119,25 +129,25 @@ paths:
           description: Grant JWS. Optional; the server's grant record is authoritative.
           schema:
             $ref: '#/components/schemas/JWS'
+        - name: Hashi-Reply
+          in: header
+          required: false
+          description: Reply token from one of the recipient's agents, for a reply on its thread.
+          schema:
+            $ref: '#/components/schemas/JWS'
       requestBody:
         required: true
         content:
           application/hashi+json:
             schema:
-              $ref: '#/components/schemas/KnockRequest'
+              $ref: '#/components/schemas/SendRequest'
       responses:
-        '200':
-          description: "yeah: accepted; handover follows."
-          content:
-            application/hashi+json:
-              schema:
-                $ref: '#/components/schemas/KnockAccepted'
         '202':
-          description: "yeah-nah: waiting on the owner."
+          description: "yeah: stamped and queued."
           content:
             application/hashi+json:
               schema:
-                $ref: '#/components/schemas/KnockPending'
+                $ref: '#/components/schemas/SendAccepted'
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -147,106 +157,182 @@ paths:
           content:
             application/hashi+json:
               schema:
-                $ref: '#/components/schemas/KnockRejected'
-        '406':
-          description: No common handover protocol.
-          content:
-            application/hashi+json:
-              schema:
-                $ref: '#/components/schemas/KnockNoCommonProtocol'
+                $ref: '#/components/schemas/SendRejected'
         '429':
           $ref: '#/components/responses/RateLimited'
 
-  /knock/{knockId}:
+  /inbox:
     get:
-      operationId: pollKnock
-      summary: Poll a pending knock. MUST be signed by the same key as the original knock.
+      operationId: listInbox
+      summary: List the owner's inbox. Called by the owner's agents and devices.
+      description: |
+        Listing is the baseline every server and agent MUST support, so
+        polling always works. The server does not route: every one of the
+        owner's agents sees the same inbox and decides what to take.
       parameters:
-        - name: knockId
-          in: path
-          required: true
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/HashiDelegation'
+        - name: queue
+          in: query
+          required: false
           schema:
             type: string
-            pattern: '^[A-Za-z0-9_-]{1,64}$'
+            enum: [incoming, processing]
+        - name: intent
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Intent'
+        - name: thread
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ThreadId'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Messages waiting.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/InboxList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /inbox/{messageId}/claim:
+    post:
+      operationId: claimMessage
+      summary: Move a message from incoming to processing. Agents only; first claim wins.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
         - $ref: '#/components/parameters/HashiDelegation'
       responses:
         '200':
-          description: Decided; accepted with handover.
+          description: Claimed.
           content:
             application/hashi+json:
               schema:
-                $ref: '#/components/schemas/KnockAccepted'
-        '202':
-          description: Still pending.
-          content:
-            application/hashi+json:
-              schema:
-                $ref: '#/components/schemas/KnockPending'
+                $ref: '#/components/schemas/InboxEntry'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          description: Rejected, or signed by a different key from the original knock.
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Already claimed.
           content:
             application/hashi+json:
               schema:
-                $ref: '#/components/schemas/KnockRejected'
-        '404':
-          description: Unknown or expired knock.
-        '400':
-          $ref: '#/components/responses/Error'
+                $ref: '#/components/schemas/Error'
         '429':
           $ref: '#/components/responses/RateLimited'
 
-  /introspect:
+  /inbox/{messageId}/release:
     post:
-      operationId: introspectCredential
-      summary: OPTIONAL. Check whether a handover credential is still active (RFC 7662 style).
-      description: Only agents holding a valid delegation from the same owner may call this.
+      operationId: releaseMessage
+      summary: Move a message back to incoming. The claiming agent or one of the owner's devices.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/HashiDelegation'
+      responses:
+        '200':
+          description: Released.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/InboxEntry'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /inbox/{messageId}:
+    delete:
+      operationId: deleteMessage
+      summary: Remove a message. The claiming agent or one of the owner's devices.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/HashiDelegation'
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /inbox/wake:
+    get:
+      operationId: listWakeChannels
+      summary: OPTIONAL. Wake-up channels this server supports.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/HashiDelegation'
+      responses:
+        '200':
+          description: Supported channels.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/WakeChannels'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      operationId: registerWakeChannel
+      summary: OPTIONAL. Register a wake-up channel for the calling agent.
+      description: |
+        Wake-up notices say only that the inbox changed. They MUST NOT carry
+        any part of a message, its stamp or its sender. For webpush, params
+        is the agent's push subscription and the push message body is empty.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
         - $ref: '#/components/parameters/ContentDigest'
-        - name: Hashi-Delegation
-          in: header
-          required: true
-          description: Calling agent's delegation from the same owner.
-          schema:
-            $ref: '#/components/schemas/JWS'
+        - $ref: '#/components/parameters/HashiDelegation'
       requestBody:
         required: true
         content:
-          application/x-www-form-urlencoded:
+          application/hashi+json:
             schema:
-              type: object
-              required: [token]
-              properties:
-                token:
-                  type: string
+              $ref: '#/components/schemas/WakeRegistration'
       responses:
-        '200':
-          description: Introspection result.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [active]
-                properties:
-                  active:
-                    type: boolean
-                  lvl:
-                    $ref: '#/components/schemas/TrustLevel'
-                  exp:
-                    type: integer
+        '204':
+          description: Registered.
+        '400':
+          $ref: '#/components/responses/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          description: Caller is not an agent of this owner.
-        '400':
-          $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/RateLimited'
+          $ref: '#/components/responses/Forbidden'
 
 components:
   parameters:
@@ -275,9 +361,16 @@ components:
       name: Hashi-Delegation
       in: header
       required: true
-      description: Agent delegation JWS (contains the agent public key).
+      description: Agent or device delegation JWS (contains the signing public key; agent delegations also carry the encryption key).
       schema:
         $ref: '#/components/schemas/JWS'
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{1,64}$'
   responses:
     RateLimited:
       description: Rate limited.
@@ -291,6 +384,18 @@ components:
             $ref: '#/components/schemas/Error'
     Unauthenticated:
       description: Signature, delegation or key missing or invalid.
+      content:
+        application/hashi+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Caller is not one of the owner's agents or devices, or may not take this action.
+      content:
+        application/hashi+json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: No such message.
       content:
         application/hashi+json:
           schema:
@@ -363,14 +468,9 @@ components:
             kid:
               type: string
 
-    ProtocolName:
-      type: string
-      description: name/version, for example a2a/1.0.
-      pattern: '^[a-z0-9-]+/[A-Za-z0-9._-]+$'
-
     Intent:
       type: string
-      description: Routing token only; never free text. Unknown values are ignored.
+      description: A token agents may use to decide which messages are theirs; never free text.
       pattern: '^[a-z][a-z0-9-]{0,31}$'
 
     HttpsUrl:
@@ -380,7 +480,7 @@ components:
 
     HashiDocument:
       type: object
-      required: [version, hashi, hid, epoch, identity_key, binding, fresh, endpoint, rotations, revoked]
+      required: [version, hashi, hid, epoch, identity_key, binding, fresh, endpoint, agents, rotations, revoked]
       description: Every field except binding, fresh and rotations is covered by the identity-signed binding.
       properties:
         version:
@@ -411,10 +511,11 @@ components:
             accept:
               type: boolean
               default: false
-        protocols:
+        agents:
           type: array
+          description: Delegations of the agents that receive the owner's messages. New messages are sealed to every one.
           items:
-            $ref: '#/components/schemas/ProtocolName'
+            $ref: '#/components/schemas/JWS'
         rotations:
           type: array
           description: Rotation chain, oldest first.
@@ -458,11 +559,51 @@ components:
         level:
           $ref: '#/components/schemas/TrustLevel'
 
-    KnockRequest:
+    ThreadId:
+      type: string
+      description: Thread ID. A new thread's ID carries at least 128 bits of randomness; replies repeat it.
+      pattern: '^[A-Za-z0-9_-]{16,64}$'
+
+    JWE:
       type: object
-      required: [to, from, protocols]
+      description: |
+        JWE in General JSON Serialization (RFC 7516), alg ECDH-ES+A256KW,
+        enc A256GCM, one recipient per sealed-to agent with kid set to that
+        agent's delegation jti. The plaintext is a compact JWS
+        (typ hashi-msg+jwt) signed by the sender's agent key.
+      required: [protected, recipients, iv, ciphertext, tag]
+      properties:
+        protected:
+          type: string
+        unprotected:
+          type: object
+        recipients:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [header, encrypted_key]
+            properties:
+              header:
+                type: object
+                required: [kid]
+                properties:
+                  kid:
+                    type: string
+              encrypted_key:
+                type: string
+        iv:
+          type: string
+        ciphertext:
+          type: string
+        tag:
+          type: string
+
+    SendRequest:
+      type: object
+      required: [to, from, thread]
       additionalProperties: false
-      description: Knocks carry no free-text fields.
+      description: Outside the envelope, messages carry no free-text fields.
       properties:
         to:
           $ref: '#/components/schemas/Hashi'
@@ -470,53 +611,25 @@ components:
           $ref: '#/components/schemas/Hashi'
         intent:
           $ref: '#/components/schemas/Intent'
-        protocols:
-          type: array
-          minItems: 1
-          maxItems: 16
-          items:
-            $ref: '#/components/schemas/ProtocolName'
+        thread:
+          $ref: '#/components/schemas/ThreadId'
+        envelope:
+          $ref: '#/components/schemas/JWE'
+        reply_token:
+          $ref: '#/components/schemas/JWS'
+          description: A reply token (typ hashi-reply+jwt) the sender offers the recipient.
 
-    Handover:
+    SendAccepted:
       type: object
-      required: [protocol, endpoint, credential, expires_at]
-      properties:
-        protocol:
-          $ref: '#/components/schemas/ProtocolName'
-        endpoint:
-          $ref: '#/components/schemas/HttpsUrl'
-        credential:
-          type: string
-          description: Binding-defined, key-bound, audience-restricted, expires within 15 minutes.
-        expires_at:
-          type: string
-          format: date-time
-
-    KnockAccepted:
-      type: object
-      required: [result, level, handover]
+      required: [result, id]
       properties:
         result:
           const: 'yeah'
-        level:
-          $ref: '#/components/schemas/TrustLevel'
-        handover:
-          $ref: '#/components/schemas/Handover'
-
-    KnockPending:
-      type: object
-      required: [result, id, retry_after]
-      properties:
-        result:
-          const: yeah-nah
         id:
           type: string
-          description: Poll at {endpoint}/knock/{id}.
-        retry_after:
-          type: integer
-          minimum: 1
+          description: Inbox message ID.
 
-    KnockRejected:
+    SendRejected:
       type: object
       required: [result]
       properties:
@@ -525,12 +638,54 @@ components:
       additionalProperties: false
       description: Carries no reason; identical however it was reached.
 
-    KnockNoCommonProtocol:
+    InboxEntry:
       type: object
-      required: [result]
+      required: [id, queue, stamp]
       properties:
-        result:
-          const: no_common_protocol
+        id:
+          type: string
+        queue:
+          type: string
+          enum: [incoming, processing]
+        stamp:
+          $ref: '#/components/schemas/JWS'
+          description: Server-key-signed stamp (typ hashi-stamp+jwt) with sender, level, intent, thread and ciphertext hash.
+        envelope:
+          $ref: '#/components/schemas/JWE'
+        reply_token:
+          $ref: '#/components/schemas/JWS'
+        claimed_by:
+          type: [string, 'null']
+          description: jti of the claiming agent's delegation, for messages in processing.
+
+    InboxList:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxEntry'
+
+    WakeChannels:
+      type: object
+      required: [channels]
+      properties:
+        channels:
+          type: array
+          items:
+            type: string
+            examples: ['webpush']
+
+    WakeRegistration:
+      type: object
+      required: [channel, params]
+      properties:
+        channel:
+          type: string
+        params:
+          type: object
+          description: Channel-specific. For webpush, the agent's push subscription.
 
     Error:
       type: object

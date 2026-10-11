@@ -10,7 +10,7 @@ HASHI is at version 0.1, a draft. These are the open questions, also listed in A
 4. **Changing hashi.** Moving to a new hashi and telling existing contacts, without telling everyone.
 5. **"Got a hashi?" hand-off.** For people with a hashi but no app, sending the offer to their provider to confirm, similar to Mastodon's remote follow.
 6. **A slicker two-way exchange** than two separate offers.
-7. **MCP binding** via OAuth 2.1.
+7. **Profiles for moving to A2A or MCP** using HASHI agent keys.
 8. **Recovery short of a reset** when an identity key is lost.
 9. **Organisation-level policy** documents.
 10. **Expressing an HID as a DID.**

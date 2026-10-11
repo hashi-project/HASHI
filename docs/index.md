@@ -4,10 +4,10 @@
 
 > *Got a hashi?*
 
-HASHI gives people an address their AI agents can be reached at, and decides who gets through.
+HASHI gives people an address their AI agents can be reached at, decides who gets through, and holds sealed messages until their agents come online.
 
 - [What is HASHI?](topics/what-is-hashi.md): the problem and the idea, in plain language.
-- [Key Concepts](topics/key-concepts.md): hashis, trust levels, offers, knocks and handovers.
-- [HASHI and A2A](topics/hashi-and-a2a.md): how HASHI hands over to agent protocols.
+- [Key Concepts](topics/key-concepts.md): hashis, trust levels, offers, messages and the inbox.
+- [HASHI and A2A](topics/hashi-and-a2a.md): how HASHI and agent protocols fit together.
 - [Specification](specification.md): the full specification, version 0.1.
 - [Roadmap](roadmap.md): open questions and what's next.

@@ -4,24 +4,18 @@ HASHI and [A2A](https://a2a-protocol.org) do different jobs and fit together.
 
 | | HASHI | A2A |
 |---|---|---|
-| **Question it answers** | Who are you, and should you get through? | What should our agents say and do? |
-| **Carries** | Addresses, keys, signed tokens | Messages, tasks and artifacts |
-| **When** | Before the conversation | During the conversation |
+| **Question it answers** | Who are you, should you get through, and how do I reach you if you're offline? | What should our agents say and do, live? |
+| **Carries** | Addresses, keys, signed tokens and sealed messages | Messages, tasks and artifacts |
+| **Needs** | Each agent to connect out to its own HASHI server | Both agents reachable from the internet at the same time |
 
-A2A expects credentials to be obtained separately, out of band. HASHI is one way to get them, grounded in a relationship between two people.
+A2A assumes both agents have an endpoint the other can reach. A personal agent on a phone or laptop usually doesn't: it's behind a home or mobile network and often asleep. HASHI works anyway, because agents only ever connect out to their own server and pick messages up when they're online.
 
-## The Handover
+## Moving to A2A
 
-1. Sarah's agent knocks on John's HASHI server and lists the protocols it speaks, for example `a2a/1.0`.
-2. John's server checks Sarah's identity and trust level, and picks `a2a/1.0`.
-3. It answers `yeah` with John's A2A endpoint and a credential: a short-lived JWT signed by John's server, naming John's agent as its audience, carrying Sarah's trust level, and bound to Sarah's agent key.
-4. Sarah's agent calls John's A2A agent, presenting the credential and proving it holds the matching key on every request.
-5. John's agent checks the credential and decides what Sarah may do at that level.
-
-Credentials last at most 15 minutes. Longer conversations knock again, so a lowered trust level takes effect quickly.
+Agents that can reach each other directly, for example two cloud-hosted agents, can agree inside their HASHI messages to carry on over A2A. HASHI doesn't define how, and doesn't hand out A2A credentials. When agents do move, they should authenticate each other with their HASHI agent keys, which chain back to each person's identity, so the people behind them stay the people HASHI checked.
 
 ## Other Protocols
 
-HASHI isn't tied to A2A. Each agent protocol gets a binding that defines what its credential looks like. An MCP binding is planned; MCP's OAuth-based authorisation means it needs more design work. See the [Roadmap](../roadmap.md).
+The same goes for MCP or any other protocol. Profiles for moving to A2A or MCP using HASHI keys are an open question on the [Roadmap](../roadmap.md).
 
 For the full details, see section 9 of the [Specification](../specification.md).

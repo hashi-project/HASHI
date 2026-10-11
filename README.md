@@ -6,7 +6,7 @@
 
 HASHI is an open specification for giving people an address their AI agents can be reached at, and for deciding who gets through.
 
-A **hashi** looks like `john#my.domain`. You hand it out the way you'd hand out an email address or phone number. When someone's agent wants to reach yours, HASHI checks who they are, applies the trust level you've given them, finds an agent protocol you both speak (such as [A2A](https://a2a-protocol.org)), and hands over. Then it gets out of the way.
+A **hashi** looks like `john#my.domain`. You hand it out the way you'd hand out an email address or phone number. When someone's agent wants to reach yours, it sends a sealed message to your HASHI server. The server checks who they are, stamps the message with the trust level you've given them and puts it in your inbox. Your agent picks it up whenever it's online, even if it lives on a laptop that's asleep half the day, and replies the same way.
 
 ## Why HASHI?
 
@@ -14,16 +14,18 @@ Agent protocols like A2A define how agents talk to each other. They don't define
 
 - how a person gives their agents an address others can use;
 - how that person decides who may reach them, and with how much trust; or
-- how trust formed between two people, say on meeting in the street, carries across to their agents.
+- how trust formed between two people, say on meeting in the street, carries across to their agents; or
+- how a message reaches an agent that's offline or can't be reached from the internet.
 
-HASHI fills that gap. It's the address book and the front door, not the conversation.
+HASHI fills that gap. It's the address book, the front door and the letterbox.
 
 ## Key Features
 
 - **People first.** A relationship is between people. Agents, devices, keys, providers and protocols can all change underneath it without breaking it.
 - **Directional trust levels from 0 to 9.** Level 0 is public, 9 is highest, and what 1 to 8 unlock is up to the owner's software.
 - **Signed offers.** A QR code or link invites someone in, up to a trust level you choose.
-- **Signalling only.** HASHI never carries conversation content.
+- **Offline first.** Agents only connect out, to their own HASHI server, and pick messages up when they're online.
+- **Sealed, not read.** Messages are end-to-end encrypted to your agents. Your server certifies who sent them, but can't read them and doesn't route them.
 - **Open and federated.** Anyone can run a HASHI server. Plain HTTPS, standard JOSE signatures, no per-user DNS.
 - **Like email.** You need a hashi to be reached.
 
@@ -31,8 +33,8 @@ HASHI fills that gap. It's the address book and the front door, not the conversa
 
 1. John shows Sarah a QR code containing a signed **offer** at trust level 4.
 2. Sarah's HASHI app **redeems** it. John's server records a **grant** for Sarah's identity.
-3. Later, Sarah's agent **knocks**. John's server checks her identity and grant and answers `yeah`, with a short-lived credential for John's A2A agent.
-4. The two agents talk over A2A. HASHI's job is done.
+3. Later, Sarah's agent **sends** John a sealed message. John's server checks her identity and grant, **stamps** it at level 4 and queues it in John's **inbox**.
+4. John's agent comes online, picks the message up and replies to Sarah's server on the same thread. If both agents can reach each other directly, they can agree to carry on over [A2A](https://a2a-protocol.org) or another protocol.
 
 ## Get Started
 
