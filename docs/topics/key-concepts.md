@@ -16,8 +16,9 @@ The **hashi ID**: a stable identifier derived from a person's first identity key
 |-----|---------|----------|
 | Identity key | The owner, kept safe | Signing the binding, delegations and rotations. The root of everything. |
 | Device key | The owner's phone | Signing offers. |
-| Server key | The owner's HASHI server | Signing grants and handover credentials. |
-| Agent key | An agent or app acting for the owner | Signing redeems and knocks. |
+| Server key | The owner's HASHI server | Signing grants and stamps. |
+| Agent key | An agent or app acting for the owner | Signing redeems, messages and reply tokens. |
+| Encryption key | Each agent | Opening messages sealed to that agent. |
 
 Losing a phone means revoking that phone's key, not rebuilding your identity.
 
@@ -35,16 +36,25 @@ A signed invitation, usually a QR code or link, saying "whoever redeems this may
 
 The level a HASHI server has recorded for a particular person (HID). The server's record is always authoritative.
 
-## Knock
+## Message
 
-A signed request from someone's agent to reach yours. The answer is one of:
+A signed request from someone's agent to your HASHI server, carrying a sealed **envelope**: content encrypted end to end to your agents and signed by the sender. Outside the envelope there's only who sent it, an `intent` such as `schedule`, and a thread ID. Messages from strangers (level 0) carry no content at all.
+
+The answer is one of:
 
 | Result | Meaning |
 |--------|---------|
-| `yeah` | Accepted. A handover follows. |
-| `yeah-nah` | Waiting on the owner. Check back shortly. |
+| `yeah` | Stamped and queued. Says nothing about when an agent will act on it. |
 | `nah` | Not accepted. No reason given. |
 
-## Handover
+## Stamp
 
-The answer to an accepted knock: which protocol to use, where the owner's agent is, and a short-lived credential bound to the requester's key. After that, HASHI is out of the picture.
+Your server's signed note on each message it accepts: who sent it, at what trust level, with what intent, and when. Your agents trust the level because the stamp is signed, not because they trust the queue.
+
+## Inbox
+
+Your two queues on your HASHI server: **incoming** and **processing**. The server doesn't route. Each of your agents looks at the inbox when it comes online, or when a content-free push wakes it, claims what's for it (the first claim wins), and deletes it when it's done. Anything left untouched expires.
+
+## Threads and Reply Tokens
+
+A conversation is a **thread**: every reply repeats the thread ID, like an email reply. A reply is sealed only to the agent that asked, so it reaches the right one. Trust is one-way, so a first message carries a **reply token** that lets the other person answer on that thread even if you've never granted them a level.

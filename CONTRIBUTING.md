@@ -12,7 +12,7 @@ Thanks for your interest in HASHI. The specification is at an early draft stage,
 
 - Keep each pull request focused on one change.
 - If you change the HTTP API, update both [`docs/specification.md`](docs/specification.md) and [`specification/hashi-openapi.yaml`](specification/hashi-openapi.yaml) so they stay in step.
-- Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages, for example `feat(spec): add addressed offers` or `fix(openapi): require from on knock`.
+- Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages, for example `feat(spec): add addressed offers` or `fix(openapi): require thread on send`.
 - Requirement keywords (**MUST**, **SHOULD**, **MAY** and so on) are written in bold capitals, as described in the specification.
 
 ## Versioning

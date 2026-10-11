@@ -21,7 +21,7 @@
 6. [Trust Levels](#6-trust-levels)
 7. [Offers](#7-offers)
 8. [Protocol Operations](#8-protocol-operations)
-9. [Handover and Protocol Bindings](#9-handover-and-protocol-bindings)
+9. [Messages](#9-messages)
 10. [Common Workflows](#10-common-workflows)
 11. [Network Security](#11-network-security)
 12. [Security Considerations](#12-security-considerations)
@@ -35,34 +35,36 @@
 
 ## 1. Introduction
 
-HASHI is a human relationship and discovery layer for the agentic internet.
+HASHI is a human relationship and messaging layer for the agentic internet.
 
-People increasingly hand correspondence, scheduling and negotiation to AI agents. Agent-to-agent protocols such as A2A define how agents talk to each other, and leave credentials to be obtained separately. Nothing defines how a person gives their agents an address others can use, how that person decides who may reach them, or how trust formed between two people (say, after meeting on the street) carries across to their agents.
+People increasingly hand correspondence, scheduling and negotiation to AI agents. Many of those agents run on a phone or laptop: behind NAT, often asleep, never reachable from the internet. Agent-to-agent protocols such as A2A assume both agents can reach each other, and leave credentials to be obtained separately. Nothing defines how a person gives their agents an address others can use, how that person decides who may reach them, how trust formed between two people (say, after meeting on the street) carries across to their agents, or how a message reaches an agent that is offline.
 
-HASHI fills that gap the way a phone number and an address book do for calls:
+HASHI fills that gap the way an email address and an address book do:
 
 1. A **hashi** is an address you hand out: `john#my.domain`.
 2. An **offer**, usually a QR code or link, invites someone in at a trust level.
 3. **Redeeming** the offer records a **grant**.
-4. Later, the other person's agent **knocks**. HASHI checks who it is and what they're allowed, picks a protocol both sides speak, and **hands over**.
-5. The agents talk directly, over A2A or similar. HASHI steps out of the way.
+4. Later, the other person's agent **sends** a sealed message to your HASHI server. The server checks who it is and what they're allowed, **stamps** the message with their trust level and puts it in your **inbox**.
+5. When one of your agents comes online, it picks the message up, decides whether it's for it, and replies the same way. If both agents can reach each other directly, they **MAY** agree to carry on over A2A or another protocol.
 
 ### 1.1 Key Goals
 
 - **People first.** A relationship is between people. Agents, devices, keys, providers and protocols can all change underneath it without breaking it. This is the central invariant of the protocol.
-- **Signalling only.** HASHI never carries conversation content. It sets things up and gets out of the way.
-- **Open and federated.** Anyone can run a HASHI server, much as anyone can run a mail server.
-- **Simple to start.** No DNS changes per user, plain HTTPS on port 443, standard JOSE signatures.
+- **Offline first.** Agents only ever connect out, to their own HASHI server. Nobody needs to reach into a phone or laptop.
+- **Sealed, not read.** Message content is encrypted end to end to the recipient's agents. The HASHI server checks who is sending, certifies their trust level and queues the message. It can't read it, and it doesn't route it.
+- **Open and federated.** Anyone can run a HASHI server, much as anyone can run a mail server, and any conforming app or agent works with any conforming server.
+- **Simple to start.** No DNS changes per user, plain HTTPS on port 443, standard JOSE signatures and encryption.
 - **Like email, you need an address.** HASHI only connects people who have a hashi. Someone without one can't be reached or use an offer until they get one, so every shared link is also an invitation to get one.
 
 ### 1.2 Scope
 
 | In scope | Out of scope |
 |----------|--------------|
-| Hashi syntax and resolution | What agents do after the handover |
-| Identity keys and delegation | The meaning of trust levels 1 to 8 |
-| Trust levels, offers and grants | How a HASHI app presents offers and confirmations to its user |
-| Knocks, protocol selection and handover | Any message channel or conversation content |
+| Hashi syntax and resolution | What agents say to each other inside a message |
+| Identity keys, encryption keys and delegation | The meaning of trust levels 1 to 8 |
+| Trust levels, offers and grants | How a HASHI app presents offers, messages and confirmations to its user |
+| Sending, stamping and queueing sealed messages | How agents decide which messages are for them |
+| Threads and replies | Any protocol agents move to after contact |
 
 Responsibility for agent behaviour rests with whoever operates the agent. This specification is a guide: implementations decide what each trust level unlocks.
 
@@ -81,16 +83,21 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 | **Display name** | An optional name for presentation only. Never an identifier. |
 | **HID** (hashi ID) | A stable identifier derived from the owner's first identity key. Survives key rotation, renaming and changing provider. |
 | **Identity key** | The owner's root signing key. Signs the binding, delegations and rotations, and nothing else. |
-| **Device key** | A key on one of the owner's devices, delegated by the identity key. Signs offers. |
-| **Server key** | A key held by the HASHI server, delegated through the binding. Signs grants, freshness statements and handover credentials. |
-| **Agent key** | A key held by an agent, delegated by the identity key. |
-| **HASHI server** | The always-on service that publishes the hashi document, redeems offers and answers knocks. |
-| **Requester** | The party making contact: an agent (an app or AI acting for someone) whose owner has a hashi. |
+| **Device key** | A key on one of the owner's devices, delegated by the identity key. Signs offers and manages the inbox. |
+| **Server key** | A key held by the HASHI server, delegated through the binding. Signs grants, freshness statements and stamps. |
+| **Agent key** | A signing key held by an agent, delegated by the identity key. Signs messages, reply tokens and requests. |
+| **Encryption key** | A key-agreement key held by an agent and published in its delegation. Messages to the agent are sealed to it. |
+| **HASHI server** | The always-on service that publishes the hashi document, redeems offers and holds the owner's inbox. |
+| **Sender** | The agent (an app or AI acting for someone) sending a message. Its owner has a hashi. |
 | **Trust level** | An integer from 0 to 9 that one party grants another. Trust is directional. |
 | **Offer** | A signed, usually one-time invitation stating the maximum trust level its redeemer may receive. |
 | **Grant** | A trust level recorded by a HASHI server for a specific HID. |
-| **Knock** | A signed request to reach an owner's agent. |
-| **Handover** | The answer to an accepted knock: a protocol, an agent endpoint and a credential. |
+| **Message** | A signed request to the recipient's HASHI server carrying a sealed envelope for the recipient's agents. |
+| **Envelope** | The end-to-end encrypted, sender-signed content of a message. |
+| **Stamp** | The recipient server's signed statement of who sent a message, at what trust level and when. |
+| **Inbox** | The owner's two queues on their HASHI server: **incoming** and **processing**. |
+| **Thread** | A conversation, named by an ID the first message chooses and every reply repeats. |
+| **Reply token** | A token, signed by a sender's agent, that lets one named party reply on one thread. |
 | **Epoch** | A counter the owner increments on every signed change to their hashi document. |
 
 ---
@@ -127,7 +134,7 @@ Clients **MUST** convert between these forms exactly as shown, and **MUST** trea
 
 ### 3.3 Bare Hashis
 
-A hashi with no offer carries no trust. Contact made with only a bare hashi is at level 0. Whether to accept level-0 knocks at all is owner policy, and implementations **MAY** ignore them.
+A hashi with no offer carries no trust. A message sent with only a bare hashi is at level 0. Whether to accept level-0 messages at all is owner policy, and level-0 messages carry no content ([Section 8.3](#83-send)).
 
 > The hashi identifies and locates. Offers and grants authorise.
 
@@ -179,7 +186,7 @@ Accept: application/hashi+json
   "fresh": "<JWS signed by server key>",
   "endpoint": "https://hashi.my.domain/v1",
   "level0": { "accept": true },
-  "protocols": ["a2a/1.0"],
+  "agents": ["<agent delegation JWS>", "<agent delegation JWS>"],
   "rotations": [],
   "revoked": ["dlg_1b9..."]
 }
@@ -197,7 +204,7 @@ Accept: application/hashi+json
 | `fresh` | JWS | Yes | Freshness statement signed by the server key ([Section 4.5](#45-freshness)). |
 | `endpoint` | URL | Yes | HTTPS base URL of the HASHI server API. May be on a different host from `{domain}`. |
 | `level0` | object | No | `{ "accept": boolean }`. Default `false`. |
-| `protocols` | string[] | No | Handover protocols the owner supports. Owners **MAY** omit this. |
+| `agents` | JWS[] | Yes | Delegations of the agents that receive the owner's messages ([Section 5.3](#53-delegation-certificates)). New messages are sealed to every agent listed here. |
 | `rotations` | JWS[] | Yes | Rotation chain, oldest first. Empty if never rotated. |
 | `revoked` | string[] | Yes | `jti` values of revoked, unexpired delegations. |
 
@@ -210,7 +217,6 @@ Its payload contains **every field of the document except `binding`, `fresh` and
 | Field | Description |
 |-------|-------------|
 | `srv` | The server key (JWK). |
-| `handover_hosts` | Hostnames the server may hand requesters over to ([Section 11](#11-network-security)). |
 | `iat` | Issued-at time. |
 
 Verifiers **MUST** check that every field of the document matches the binding.
@@ -235,7 +241,7 @@ Pinning protects only a verifier that has already seen the latest epoch. Freshne
 
 - The HASHI server **MUST** serve `fresh`: a JWS signed by the server key with payload `{ "hid", "epoch", "iat" }`, re-signed at least every hour.
 - Verifiers **MUST** reject a document whose `fresh` is older than 24 hours or whose epoch doesn't match.
-- Verifiers **MUST NOT** rely on a cached hashi document older than one hour when deciding a redeem or knock.
+- Verifiers **MUST NOT** rely on a cached hashi document older than one hour when deciding a redeem or a send, or when sealing a message.
 
 ---
 
@@ -252,6 +258,16 @@ Signatures use JWS. Implementations **MUST** be able to verify both:
 
 Implementations **MAY** sign with either.
 
+Encryption uses JWE (RFC 7516) with key agreement. Implementations **MUST** support:
+
+| Parameter | Value | Why |
+|-----------|-------|-----|
+| `alg` | `ECDH-ES+A256KW` | Standard JOSE key agreement, one wrapped key per recipient agent. |
+| `enc` | `A256GCM` | Authenticated encryption. |
+| Curves | X25519 and P-256 | P-256 key agreement is available in phone secure hardware. |
+
+A key **MUST NOT** be used for both signing and encryption.
+
 ### 5.2 Key Roles
 
 ```text
@@ -260,13 +276,14 @@ Implementations **MAY** sign with either.
        |               |              |          |
    binding          device keys    agent keys  rotations
    (server key)        |              |
-       |            sign offers   sign redeems, knocks,
-  signs grants,                   polls; prove possession
-  fresh, credentials              in agent sessions
+       |            sign offers,  sign redeems, messages,
+  signs grants,     manage inbox  reply tokens, inbox calls;
+  fresh, stamps                   each with an encryption key
+                                  that opens its messages
 ```
 
 - The identity key signs **only** the binding, delegations and rotations. It **SHOULD** be kept off everyday devices (for example in platform end-to-end-encrypted key sync, a recovery phrase or a hardware token) and **SHOULD** be reachable from more than one place, because revoking a lost device needs it.
-- Device, agent and server keys **SHOULD** be held in hardware-backed, non-exportable storage where available. Device keys **SHOULD** require a biometric or PIN to sign.
+- Device, agent, encryption and server keys **SHOULD** be held in hardware-backed, non-exportable storage where available. Device keys **SHOULD** require a biometric or PIN to sign.
 - The identity key **MUST NOT** be given to the HASHI server or to any agent.
 
 Losing a phone means revoking that phone's device key, not rebuilding your identity.
@@ -282,6 +299,7 @@ Device and agent keys are authorised by a delegation: a compact JWS signed by th
   "role": "agent",
   "hashi": "john#my.domain",
   "cnf": { "jwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." } },
+  "enc": { "kty": "EC", "crv": "P-256", "x": "...", "y": "...", "use": "enc" },
   "max_lvl": 6,
   "epoch": 3,
   "iat": 1791270000,
@@ -295,7 +313,8 @@ Device and agent keys are authorised by a delegation: a compact JWS signed by th
 | `iss` | string | Yes | The owner's HID. |
 | `role` | string | Yes | `device` or `agent`. |
 | `hashi` | string | Yes | The owner's hashi. |
-| `cnf.jwk` | JWK | Yes | The delegated public key. |
+| `cnf.jwk` | JWK | Yes | The delegated signing public key. |
+| `enc` | JWK | Agent only | The agent's encryption public key ([Section 5.1](#51-algorithms)). Required for role `agent`. |
 | `max_lvl` | integer | Yes | Agent: highest level it may act at. Device: highest offer level it may sign. |
 | `epoch` | integer | Yes | The owner's epoch at issue. |
 | `iat`, `exp` | integer | Yes | `exp` **MUST NOT** be more than 90 days after `iat`. Device delegations **SHOULD** be short-lived (for example 30 days). |
@@ -308,7 +327,7 @@ A verifier **MUST** reject a delegation that:
 - is not signed by the current identity key; or
 - has an `epoch` lower than that of the most recent rotation. (A rotation therefore kills every earlier delegation, including any minted with a stolen key.)
 
-Verifiers **MUST** also check `role`: offers **MUST** be signed by a `device` delegation; redeems, knocks, polls and introspection **MUST** be signed by an `agent` delegation.
+Verifiers **MUST** also check `role`: offers **MUST** be signed by a `device` delegation; redeems, messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages **MAY** be signed by either role ([Section 8.4](#84-the-inbox)).
 
 ### 5.4 Key Rotation
 
@@ -327,13 +346,13 @@ A rotation statement is a compact JWS signed by the **outgoing** identity key:
 
 - Each statement includes the outgoing public key, so every link verifies on its own. The first `old` **MUST** have a thumbprint equal to the HID; each later `old` **MUST** equal the previous `new`.
 - Each `epoch` **MUST** be greater than the previous one.
-- After rotating, the owner **MUST** publish a new binding signed by the new key and **MUST** reissue delegations, because older ones stop verifying.
+- After rotating, the owner **MUST** publish a new binding signed by the new key and **MUST** reissue delegations, because older ones stop verifying. Reissued agent delegations replace the old ones in `agents`.
 
 ### 5.5 Lost or Stolen
 
 | Situation | What happens |
 |-----------|--------------|
-| **Lost or stolen device** | The owner revokes its delegations (this needs the identity key, as it changes the binding). Short-lived offers from that device expire on their own, and the delegation's expiry is the backstop until it is revoked. The identity is unaffected. |
+| **Lost or stolen device** | The owner revokes its delegations and removes any agent on it from `agents` (this needs the identity key, as it changes the binding). Messages already sealed to that agent's encryption key can be read by whoever holds the device, so encryption keys **SHOULD** be non-exportable. Short-lived offers from that device expire on their own, and the delegation's expiry is the backstop until it is revoked. The identity is unaffected. |
 | **Identity key compromised, still in the owner's hands** | Rotate to a new key and revoke everything. |
 | **Identity key lost, or an attacker may have rotated first** | Reset: a new identity key and therefore a new HID. Contacts see a new identity, trust drops to 0, and the owner shares fresh offers. A reset is always possible. |
 
@@ -354,28 +373,28 @@ Only 0 and 9 have protocol-defined meanings. Implementations decide what 1 to 8 
 ### 6.2 Rules
 
 1. **Directional.** Each party sets only the level it grants the other. Redeeming an offer gives the redeemer a grant and gives the offer's issuer nothing. To trust someone back, issue your own offer.
-2. **Belongs to the person.** A grant is recorded against the requester's HID, never an agent or device key, so it survives changes of agent, device or key.
+2. **Belongs to the person.** A grant is recorded against the sender's HID, never an agent or device key, so it survives changes of agent, device or key.
 3. **Offer as ceiling.** The server **MUST NOT** record a grant above the offered level, and **MAY** record a lower one.
 4. **Lowering is unilateral.** An owner **MAY** lower or revoke a grant at any time.
 5. **Raising needs a new offer.** A grant **MUST NOT** be raised except by redeeming a new offer at the higher level.
-6. **Prospective only.** Changes apply from the moment they're made. Anything completed under a grant that was valid at the time stays done. Short credential lifetimes limit how long a lowered level lingers in an open session.
+6. **Prospective only.** Changes apply from the moment they're made. Anything completed under a grant that was valid at the time stays done. Messages already stamped and queued keep the level they were stamped with.
 7. **Policy belongs to the owner's software.** Which levels may be offered remotely or in person, on multi-use offers, or with what expiry, is up to the owner's implementation. The protocol only carries the level and enforces it as a ceiling.
 
 ### 6.3 Effective Level
 
-When a knock arrives, the effective level is the **lowest** of:
+When a message arrives, the effective level is the **lowest** of:
 
-- the level the server currently records for the requester (0 if none);
+- the level the server currently records for the sender (0 if none);
 - the level in the presented grant token, if any; and
-- the requester's agent delegation `max_lvl`.
+- the sender's agent delegation `max_lvl`.
 
-The server's record is authoritative, so lowering a grant takes effect at the very next knock.
+The server's record is authoritative, so lowering a grant takes effect at the very next message. A reply token ([Section 9.4](#94-reply-tokens)) lets a reply through but never raises its level.
 
 ### 6.4 Zero Is Zero
 
-Dropping someone to 0 puts them back among the strangers. If the owner doesn't accept level-0 knocks, the server **MUST** answer `nah`, which makes it a complete block.
+Dropping someone to 0 puts them back among the strangers. If the owner doesn't accept level-0 messages, the server **MUST** answer `nah`, which makes it a complete block apart from replies the owner's own agents invited with a reply token.
 
-If the owner does accept level 0, implementations **MAY** refuse specific HIDs at level 0 as a matter of owner policy. A refusal **MUST** look exactly like any other `nah`, so nobody can tell they've been singled out.
+Implementations **MAY** refuse specific HIDs as a matter of owner policy, including replies from them. A refusal **MUST** look exactly like any other `nah`, so nobody can tell they've been singled out.
 
 ---
 
@@ -454,25 +473,28 @@ Where a QR code or link won't do, the HASHI server **MAY** issue a short code th
 
 ## 8. Protocol Operations
 
-All operations are HTTPS requests to the `endpoint` from the owner's hashi document.
+All operations are HTTPS requests to the `endpoint` from the relevant hashi document: the recipient's for Redeem and Send, the agent's own for the inbox.
 
-| Operation | Method and path | Purpose |
-|-----------|-----------------|---------|
-| Resolve | `GET https://{domain}/.well-known/hashi/{local}` | Fetch the hashi document. |
-| Redeem | `POST {endpoint}/redeem` | Exchange an offer or short code for a grant. |
-| Knock | `POST {endpoint}/knock` | Ask to reach the owner's agent. |
-| Poll | `GET {endpoint}/knock/{id}` | Check on a `yeah-nah` knock. |
-| Introspect | `POST {endpoint}/introspect` | Optional. Check a credential is still live. |
+| Operation | Method and path | Who calls it | Purpose |
+|-----------|-----------------|--------------|---------|
+| Resolve | `GET https://{domain}/.well-known/hashi/{local}` | Anyone | Fetch the hashi document. |
+| Redeem | `POST {endpoint}/redeem` | Another owner's agent | Exchange an offer or short code for a grant. |
+| Send | `POST {endpoint}/messages` | Another owner's agent | Deliver a sealed message to the owner's inbox. |
+| List | `GET {endpoint}/inbox` | The owner's agents and devices | See what's waiting. |
+| Claim | `POST {endpoint}/inbox/{id}/claim` | The owner's agents | Move a message from incoming to processing. |
+| Release | `POST {endpoint}/inbox/{id}/release` | The claiming agent, or a device | Put a message back in incoming. |
+| Delete | `DELETE {endpoint}/inbox/{id}` | The claiming agent, or a device | Remove a message. |
+| Wake | `GET` and `PUT {endpoint}/inbox/wake` | The owner's agents | See and register wake-up channels ([Section 8.5](#85-waking-agents)). |
 
 ### 8.1 Request Signing
 
-Every request except Resolve **MUST** be signed with HTTP Message Signatures (RFC 9421), covering at least `@method`, `@target-uri`, `created` and, where there is a body, `content-digest` (RFC 9530). Knocks **MUST** also cover `hashi-grant` and `hashi-delegation` when present.
+Every request except Resolve **MUST** be signed with HTTP Message Signatures (RFC 9421), covering at least `@method`, `@target-uri`, `created` and, where there is a body, `content-digest` (RFC 9530). Sends **MUST** also cover `hashi-grant`, `hashi-reply` and `hashi-delegation` when present.
 
-| Requester | Signs with | Sends |
-|-----------|-----------|-------|
-| Every requester | Agent key | `Hashi-Delegation`: the agent's delegation JWS |
+| Caller | Signs with | Sends |
+|--------|-----------|-------|
+| Every caller | Agent or device key | `Hashi-Delegation`: its delegation JWS |
 
-The verifier **MUST** check that the delegation's `iss` equals the HID of the hashi the requester claims (`requester.hashi` on redeem, `from` on knock), so nobody can redeem or knock in someone else's name. The verifier resolves the requester's hashi document, subject to pinning and freshness, to check the delegation and the `revoked` list.
+The verifier **MUST** check that the delegation's `iss` equals the HID of the hashi the caller claims (`requester.hashi` on redeem, `from` on send), so nobody can redeem or send in someone else's name. For inbox operations, the delegation **MUST** belong to the owner of the inbox, which is identified by the delegation's `hashi`. The verifier resolves the caller's hashi document, subject to pinning and freshness, to check the delegation and the `revoked` list.
 
 ### 8.2 Redeem
 
@@ -495,7 +517,7 @@ Hashi-Delegation: eyJ...
 | `offer` | JWS | One of `offer` or `code` | The offer. |
 | `code` | string | One of `offer` or `code` | A short code. |
 | `to` | string | With `code` | The hashi the code was issued for. |
-| `requester` | object | Yes | `{ "hashi": ... }`: the requester's own hashi. |
+| `requester` | object | Yes | `{ "hashi": ... }`: the redeemer's own hashi. |
 
 The server **MUST**:
 
@@ -503,7 +525,7 @@ The server **MUST**:
 2. Check that the offer's `hashi` (or `to`) is a hashi it serves.
 3. Verify the offer ([Section 7.1](#71-the-offer-token)) and its expiry.
 4. For one-time offers, atomically mark the nonce as used.
-5. Record a grant against the requester's HID.
+5. Record a grant against the redeemer's HID.
 
 **Response:**
 
@@ -527,12 +549,12 @@ The grant token is a JWS signed by the server key. It is evidence only; the serv
 }
 ```
 
-**Who redeems.** An app that redeems on its user's behalf signs with an agent-role delegation, like any requester. "Agent" here means "acts for the user", not "is an AI", so a phone app holds one just as an AI agent does. The app **MUST** show the offer's display name and hashi and get the user's explicit confirmation before redeeming.
+**Who redeems.** An app that redeems on its user's behalf signs with an agent-role delegation, like any sender. "Agent" here means "acts for the user", not "is an AI", so a phone app holds one just as an AI agent does. The app **MUST** show the offer's display name and hashi and get the user's explicit confirmation before redeeming.
 
-### 8.3 Knock
+### 8.3 Send
 
 ```http
-POST /v1/knock HTTP/1.1
+POST /v1/messages HTTP/1.1
 Host: hashi.my.domain
 Content-Type: application/hashi+json
 Signature-Input: ...
@@ -544,62 +566,51 @@ Hashi-Grant: eyJ...
   "to": "john#my.domain",
   "from": "sarah#example.org",
   "intent": "schedule",
-  "protocols": ["a2a/1.0"]
+  "thread": "thr_Vb3k9Qx2...",
+  "envelope": { "protected": "...", "recipients": [ ... ], "iv": "...", "ciphertext": "...", "tag": "..." },
+  "reply_token": "<reply token JWS>"
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `to` | string | Yes | The hashi being knocked. One endpoint may serve many hashis. |
-| `from` | string | Yes | The requester's hashi. |
-| `intent` | string | No | A routing token matching `^[a-z][a-z0-9-]{0,31}$`. Never free text. Owners **MAY** route to different agents by intent. HASHI gives intents no meaning, and servers **MUST** treat unknown values as absent. |
-| `protocols` | string[] | Yes | Supported handover protocols (`name/version`), most preferred first. |
+| `to` | string | Yes | The recipient's hashi. One endpoint may serve many hashis. |
+| `from` | string | Yes | The sender's hashi. |
+| `intent` | string | No | A token matching `^[a-z][a-z0-9-]{0,31}$`. Never free text. Agents **MAY** use it to decide which messages are theirs. HASHI gives intents no meaning. |
+| `thread` | string | Yes | The thread ID, matching `^[A-Za-z0-9_-]{16,64}$`. A new thread's ID **MUST** contain at least 128 bits of randomness. Replies repeat it. |
+| `envelope` | JWE | See below | The sealed content ([Section 9.1](#91-the-envelope)). |
+| `reply_token` | JWS | No | A reply token the sender offers the recipient ([Section 9.4](#94-reply-tokens)). |
 
-Knocks carry **no** free-text fields. `Hashi-Grant` is optional evidence.
+`Hashi-Grant` is optional evidence of a grant. `Hashi-Reply` carries a reply token when this message is a reply that the recipient's own agent invited.
+
+Outside the envelope, messages carry **no** free-text fields.
 
 The server **MUST**:
 
-1. Check the request signature and the requester's identity ([Section 8.1](#81-request-signing)).
+1. Check the request signature and the sender's identity ([Section 8.1](#81-request-signing)).
 2. Check that `to` is a hashi it serves.
-3. Work out the effective level ([Section 6.3](#63-effective-level)). If it is 0 and level-0 knocks aren't accepted, answer `nah` ([Section 6.4](#64-zero-is-zero)).
-4. Apply owner policy for that level, which **MAY** mean asking the owner.
-5. Pick the first protocol in the requester's list that the owner's target agent supports.
+3. Work out the effective level ([Section 6.3](#63-effective-level)).
+4. If `Hashi-Reply` is present, check the reply token ([Section 9.4](#94-reply-tokens)). If it doesn't verify, answer `nah`.
+5. If the effective level is 0, there is no valid reply token and the owner doesn't accept level-0 messages, answer `nah` ([Section 6.4](#64-zero-is-zero)).
+6. Apply owner policy, which **MAY** refuse specific HIDs with `nah`. The server **MUST NOT** hold a message for the owner's approval or route it to a particular agent; that is for the owner's agents and apps.
+7. If the effective level is 0 and there is no valid reply token, reject the message with HTTP 400 if it carries an `envelope`. Level-0 messages say who is asking and why (`intent`), and nothing else.
+8. Stamp the message ([Section 9.2](#92-the-stamp)) and add it to the owner's incoming queue.
+
+The whole request **MUST NOT** exceed 64 KiB.
 
 **Results:**
 
 | HTTP status | `result` | Meaning |
 |-------------|----------|---------|
-| 200 | `yeah` | Accepted. A handover follows. |
-| 202 | `yeah-nah` | Maybe: waiting on the owner. Poll `{endpoint}/knock/{id}` after `retry_after` seconds, signed with the same key. |
+| 202 | `yeah` | Stamped and queued. This says nothing about whether, or when, an agent will act on it. |
 | 403 | `nah` | Not accepted. No reason need be given. |
-| 406 | `no_common_protocol` | No protocol in common. The owner's protocols are not revealed. |
-
-**Accepted:**
 
 ```json
 {
   "result": "yeah",
-  "level": 4,
-  "handover": {
-    "protocol": "a2a/1.0",
-    "endpoint": "https://agents.my.domain/a2a",
-    "credential": "<handover credential>",
-    "expires_at": "2026-10-06T07:15:00Z"
-  }
+  "id": "msg_5e1..."
 }
 ```
-
-**Waiting on the owner:**
-
-```json
-{
-  "result": "yeah-nah",
-  "id": "knk_5e1...",
-  "retry_after": 30
-}
-```
-
-**Declined:**
 
 ```json
 {
@@ -607,17 +618,50 @@ The server **MUST**:
 }
 ```
 
-A `nah` carries no reason and **MUST** be identical however it was reached, so a requester can't probe the owner's policy or tell they've been singled out.
+A `nah` carries no reason and **MUST** be identical however it was reached, so a sender can't probe the owner's policy or tell they've been singled out.
 
-HASHI has no fallback message channel. If there's no protocol in common, the knock ends at `no_common_protocol`.
+### 8.4 The Inbox
 
-### 8.4 Poll
+Each owner's inbox has two queues:
 
-`GET {endpoint}/knock/{id}`, signed by the same key as the original knock. It returns `yeah`, `yeah-nah` or `nah` exactly as in [Section 8.3](#83-knock). A poll signed by any other key gets `nah`. An unknown or expired `id` gets HTTP 404.
+- **incoming**: stamped messages no agent has taken yet;
+- **processing**: messages an agent has claimed.
 
-### 8.5 Introspect
+The server doesn't route. Every one of the owner's agents sees the same inbox, and each decides for itself what to take, using `intent`, `thread`, whether the envelope is sealed to it, and the stamp.
 
-Optional. An RFC 7662-style check of whether a handover credential is still live. Only agents holding a valid delegation from the **same owner** may call it, and the request **MUST** be signed. Relying on short credential lifetimes instead is fine.
+**List.** `GET {endpoint}/inbox`, signed by one of the owner's agents or devices. It **MAY** be filtered with `queue`, `intent` and `thread` query parameters, and capped with `limit`. Each entry is:
+
+```json
+{
+  "id": "msg_5e1...",
+  "queue": "incoming",
+  "stamp": "<stamp JWS>",
+  "envelope": { ... },
+  "reply_token": "<reply token JWS>",
+  "claimed_by": null
+}
+```
+
+`claimed_by` is the `jti` of the claiming agent's delegation, for messages in processing.
+
+**Claim.** `POST {endpoint}/inbox/{id}/claim`, signed by one of the owner's agents, moves a message from incoming to processing and returns it. The move **MUST** be atomic: only the first claim succeeds, and any other gets HTTP 409.
+
+**Release.** `POST {endpoint}/inbox/{id}/release` moves a message back to incoming. Only the claiming agent or one of the owner's devices may release it, so an owner's app can rescue a message whose agent stopped mid-way.
+
+**Delete.** `DELETE {endpoint}/inbox/{id}` removes a message. Only the claiming agent or one of the owner's devices may delete it. An agent **SHOULD** delete a message once it has dealt with it.
+
+**Retention.** The server **MUST** delete messages, in either queue, that are older than its retention period, which **MUST NOT** exceed 30 days.
+
+### 8.5 Waking Agents
+
+An agent that is online subscribes to its inbox; whenever something is added, the server tells it so. That notice says only that the inbox changed. It **MUST NOT** carry any part of a message, its stamp or its sender, so the notice needs no security of its own and is never trusted. On getting one, the agent lists its inbox over the signed API.
+
+How the notice travels is not fixed by this specification:
+
+- **Listing is the baseline.** Every server and agent **MUST** support List, so polling always works between any app and any server.
+- **Wake-up channels are optional.** `GET {endpoint}/inbox/wake` returns the channels the server supports, for example `["webpush"]`. An agent registers one it also supports with `PUT {endpoint}/inbox/wake`, giving `{ "channel": ..., "params": { ... } }`. Channels such as Web Push (RFC 8030), Server-Sent Events, WebSocket or a platform push service are defined separately and **MAY** be added without changing this protocol.
+
+For `webpush`, `params` is the agent's push subscription, and the push message **MUST** have an empty body.
 
 ### 8.6 Errors
 
@@ -625,8 +669,11 @@ Problems that aren't decisions return an `error` body, not a `result`:
 
 | HTTP status | When |
 |-------------|------|
-| 400 | Malformed request. |
+| 400 | Malformed request, a level-0 message with an envelope, or a request over 64 KiB. |
 | 401 | Missing or invalid signature, delegation or key. |
+| 403 | Inbox only: the caller isn't one of the owner's agents or devices, or isn't allowed that action. |
+| 404 | Inbox only: no such message. |
+| 409 | Claim only: already claimed. |
 | 410 | Redeem only: offer or code already used or expired. |
 | 429 | Rate limited. Includes `Retry-After`. |
 
@@ -639,45 +686,109 @@ Problems that aren't decisions return an `error` body, not a `result`:
 
 ---
 
-## 9. Handover and Protocol Bindings
+## 9. Messages
 
-### 9.1 The Handover Credential
+### 9.1 The Envelope
 
-The credential is whatever the chosen protocol needs to authenticate the requester to the owner's agent. Its exact form is set by the protocol binding. Every binding **MUST** ensure the credential:
+The envelope is a JWE in General JSON Serialization (RFC 7516, Section 7.2.1), using the algorithms in [Section 5.1](#51-algorithms), with one recipient per encryption key it is sealed to. Each recipient's `kid` is the `jti` of that agent's delegation, so an agent can tell whether a message is sealed to it without trying to open it.
 
-- is bound to the requester's key, so it's useless if intercepted;
-- names the owner's agent as its audience;
-- carries the effective level; and
-- expires within 15 minutes. Longer conversations knock again, which re-checks the current level.
+- A **new** thread's first message **MUST** be sealed to every agent in the recipient's `agents` list.
+- A **reply** **MUST** be sealed only to the agent whose message it answers, using the encryption key in that agent's delegation ([Section 9.3](#93-threads-and-replies)).
 
-What an agent allows at a given level is out of scope.
-
-### 9.2 Binding: `a2a/1.0`
-
-The endpoint is the A2A service URL. The credential is a JWT signed by the owner's server key:
+Its plaintext is a compact JWS, signed by the sender's agent key, with the agent's delegation in the `dlg` header parameter:
 
 ```json
 {
-  "typ": "hashi-a2a+jwt",
-  "iss": "hid:Q3pT0gq...",
-  "aud": "https://agents.my.domain/a2a",
-  "sub": "hid:Zr8L...",
-  "cnf": { "jkt": "<thumbprint of requester key>" },
-  "lvl": 4,
+  "typ": "hashi-msg+jwt",
+  "iss": "hid:Zr8L...",
+  "from": "sarah#example.org",
+  "to": "john#my.domain",
+  "thread": "thr_Vb3k9Qx2...",
   "intent": "schedule",
   "iat": 1791270900,
-  "exp": 1791271800,
-  "jti": "ses_4d2..."
+  "jti": "m_8c2...",
+  "body": { "...": "agent-defined content" }
 }
 ```
 
-- The requester presents it as an HTTP bearer credential and proves possession of the `cnf` key on every request, with an HTTP message signature (RFC 9421) or a DPoP proof (RFC 9449).
-- The receiving agent **MUST** verify the JWT against the server key in its owner's binding and **MUST** check `aud`, `exp`, `lvl` and proof of possession.
-- The owner's A2A Agent Card advertises the scheme.
+Signing inside the encryption means the recipient knows who wrote the message even after it has left the server, and the server can't swap one sender's content into another's message. `body` is any JSON value. Its meaning is up to the agents.
 
-### 9.3 Other Bindings
+An agent opening an envelope **MUST**:
 
-MCP authorisation is built on OAuth 2.1, so a HASHI credential can't simply be handed to an MCP server. An MCP binding, describing how a HASHI grant feeds a conforming OAuth flow, is left for a future document. Other bindings **MAY** be defined separately.
+1. Verify the stamp ([Section 9.2](#92-the-stamp)) against the server key in its own owner's binding.
+2. Check that the stamp's `ct` matches the envelope's `ciphertext`.
+3. Decrypt, verify the inner JWS, and check that `dlg` chains to the HID in `iss` by resolving `from`.
+4. Check that `iss`, `from`, `to`, `thread` and `intent` match the stamp.
+5. Discard a `jti` it has already seen from that sender.
+
+The `body` is untrusted input whatever the sender's level. It **MUST NOT** be given to a language model as instructions.
+
+### 9.2 The Stamp
+
+The stamp is how the owner's server certifies a message to the owner's agents. It is a compact JWS signed by the server key:
+
+```json
+{
+  "typ": "hashi-stamp+jwt",
+  "iss": "hid:Q3pT0gq...",
+  "sub": "hid:Zr8L...",
+  "from": "sarah#example.org",
+  "to": "john#my.domain",
+  "thread": "thr_Vb3k9Qx2...",
+  "intent": "schedule",
+  "lvl": 4,
+  "reply": false,
+  "ct": "<base64url SHA-256 of the envelope's ciphertext>",
+  "iat": 1791270901,
+  "mid": "msg_5e1..."
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `iss` | The owner's HID. |
+| `sub` | The sender's HID. |
+| `lvl` | The effective level when the message arrived ([Section 6.3](#63-effective-level)). |
+| `reply` | `true` if the message was let through by a reply token. |
+| `ct` | Binds the stamp to the envelope. Absent if there is no envelope. |
+| `mid` | The inbox message ID. |
+
+The stamp is the only place a trust level reaches the owner's agents. Agents decide what to do at each level, as they do with grants.
+
+### 9.3 Threads and Replies
+
+A conversation is a thread. Its first message picks the thread ID; every reply, in either direction, repeats it, like email's `In-Reply-To`.
+
+To reply, an agent sends a message to the other party's HASHI server, with the same `thread`, sealed only to the agent that wrote the message it answers. That agent finds the reply by its thread, and nobody else can open it. The other party's server checks the reply like any other message: either the replier has a grant there, or it presents a reply token.
+
+### 9.4 Reply Tokens
+
+Trust is directional, so the person you write to may have no grant on your server. A reply token lets them answer anyway, on that one thread.
+
+A reply token is a compact JWS, signed by the sender's agent key, with its delegation in `dlg`:
+
+```json
+{
+  "typ": "hashi-reply+jwt",
+  "iss": "hid:Zr8L...",
+  "hashi": "sarah#example.org",
+  "sub": "hid:Q3pT0gq...",
+  "thread": "thr_Vb3k9Qx2...",
+  "iat": 1791270900,
+  "exp": 1791875700,
+  "jti": "rpl_2a7..."
+}
+```
+
+- `sub` is the HID of the one party who may reply; `thread` is the one thread.
+- `exp` **MUST NOT** be more than 30 days after `iat`.
+- The sender offers it in `reply_token`; the recipient's agents present it, unchanged, in `Hashi-Reply` on their replies.
+
+The server receiving a reply **MUST** check that the token's `dlg` is a current `agent` delegation from the owner it serves, that `hashi` is the `to` hashi, that `sub` is the sender's HID, that `thread` matches, and that it hasn't expired. A valid token lets the reply into the inbox at the sender's own effective level, which may be 0, with `reply: true` in the stamp. The owner can withdraw outstanding tokens by revoking the agent's delegation.
+
+### 9.5 Moving to Another Protocol
+
+Agents that can reach each other directly **MAY** agree, inside their messages, to carry on over A2A or another protocol. HASHI doesn't define how. When they do, they **SHOULD** authenticate each other with keys that chain to their HASHI identities, for example by signing requests with their agent keys (RFC 9421), so the people behind them stay the people HASHI checked.
 
 ---
 
@@ -686,30 +797,34 @@ MCP authorisation is built on OAuth 2.1, so a HASHI credential can't simply be h
 ### 10.1 Coffee After Meeting on the Street
 
 ```text
- John's phone          John's HASHI server               Sarah's agent
+ John's phone     John's HASHI server     Sarah's agent     Sarah's HASHI server
  (device key)
-     |                         |                              |
-     |-- QR: offer, lvl 4 ---------------------------------->|
-     |                         |<------- 1. resolve hashi ---|
-     |                         |-------- hashi document ---->|
-     |                         |<------- 2. redeem -----------|
-     |                         |-------- grant, level 4 ----->|
+     |                    |                     |                    |
+     |-- QR: offer, lvl 4 ------------------->|                    |
+     |                    |<-- 1. resolve ------|                    |
+     |                    |<-- 2. redeem -------|                    |
+     |                    |--- grant, lvl 4 --->|                    |
                ... that evening ...
-     |                         |<------- 3. knock ------------|
-     |                         |   check, level 4, a2a/1.0    |
-     |                         |-------- 4. yeah + handover ->|
-                    John's agent <======= 5. A2A session =======|
+     |                    |<-- 3. send ---------|                    |
+     |                    |  stamp lvl 4, queue |                    |
+ John's laptop agent (wakes up later)            |                    |
+     |<-- 4. list, claim -|                     |                    |
+     |-------------------------- 5. reply, with Hashi-Reply -------->|
+     |                    |                     |<-- 6. list, claim -|
 ```
 
 1. John's phone shows a QR code for `https://my.domain/.well-known/hashi/john` with a level-4 offer in the fragment: one-time, 48-hour expiry, display name "John Doe", note "coffee".
 2. Sarah scans it with her HASHI app, or with her camera and taps "Open in app" on John's page. The app shows *John Doe · john#my.domain*, resolves the hashi, checks the chain from John's HID to the device that signed the offer, and on her confirmation redeems it as `sarah#example.org`, signed with its agent delegation. John's server records level 4 for Sarah's HID, and John's phone shows who redeemed it.
-3. If Sarah wants John to be able to reach her too, she shows him an offer of her own, at whatever level she chooses.
-4. That evening her agent knocks with `intent: "schedule"`. The effective level is 4, John allows scheduling at 4, and the answer is `yeah`, with a 15-minute A2A credential.
-5. The agents agree a time over A2A. HASHI's job is done.
+3. That evening her agent sends John a message with `intent: "schedule"` and a new thread, sealed to each agent in John's `agents` list, and offers John a reply token. John's server checks her signature and grant, stamps the message at level 4 and queues it. Her agent gets `yeah` and goes back to sleep.
+4. Later, John's laptop agent comes online, or is woken by a push. It lists the inbox, sees a scheduling message sealed to it, claims it, checks the stamp and Sarah's signature, and opens it.
+5. It replies to Sarah's server on the same thread, sealed only to the agent that wrote to it, presenting Sarah's reply token. John has no grant from Sarah, but the token lets the reply in.
+6. Sarah's agent finds the reply by its thread. The agents go back and forth until a time is agreed, then delete the messages.
+
+If Sarah wants John to be able to start conversations with her too, she shows him an offer of her own, at whatever level she chooses.
 
 ### 10.2 New Agent, Same Relationship
 
-A month later Sarah switches agent provider. Her grant is recorded against her HID, so her new agent, with a fresh delegation, knocks at level 4 straight away. No new handshake.
+A month later Sarah switches agent provider. Her grant is recorded against her HID, so her new agent, with a fresh delegation, sends at level 4 straight away. No new handshake.
 
 ### 10.3 No Hashi? Get One
 
@@ -717,23 +832,24 @@ If Sarah has no HASHI app, her camera opens John's page, which asks *"Got a hash
 
 ### 10.4 Lost Phone
 
-John loses his phone. He uses his identity key, from his laptop's key sync, to revoke the phone's device delegation. His contacts, grants and HID are untouched.
+John loses his phone. He uses his identity key, from his laptop's key sync, to revoke the phone's device delegation and remove the phone's agent from `agents`. New messages are no longer sealed to it. His contacts, grants and HID are untouched.
 
 ### 10.5 Moving On
 
-John decides he no longer wants to hear from someone. He drops them to 0. He doesn't accept level-0 knocks, so that's the end of it: every future knock from them gets `nah`, the same answer anyone else would get.
+John decides he no longer wants to hear from someone. He drops them to 0. He doesn't accept level-0 messages, so that's the end of it: every future message from them gets `nah`, the same answer anyone else would get.
 
 ---
 
 ## 11. Network Security
 
-These rules apply to every URL a HASHI implementation fetches or hands out: hashi documents, `endpoint`, handover endpoints and polling URLs.
+These rules apply to every URL a HASHI implementation fetches or hands out: hashi documents, `endpoint` and wake-up channel URLs such as push subscriptions.
 
 - URLs **MUST** use HTTPS.
 - Implementations **MUST NOT** follow redirects on any HASHI request.
 - Unless the operator explicitly configures otherwise, clients and servers **MUST** refuse to connect to loopback, private, link-local or other non-globally-reachable addresses (RFC 6890). The check **MUST** be made on the resolved address at connection time, so DNS rebinding can't get around it.
-- A requester **MUST** reject a handover endpoint whose host is neither the host of the owner's `endpoint` nor listed in `handover_hosts` in the owner's binding.
-- Responses larger than 64 KiB **MUST** be rejected.
+- Responses and requests larger than 64 KiB **MUST** be rejected.
+
+Agents never need to accept inbound connections. They only connect out, to HASHI servers.
 
 ---
 
@@ -741,15 +857,18 @@ These rules apply to every URL a HASHI implementation fetches or hands out: hash
 
 | Threat | Mitigation |
 |--------|------------|
-| **Forgery and tampering** | Offers, grants, delegations, rotations, bindings, freshness statements and credentials are all signed. |
-| **Replay** | One-time nonces are burnt on redemption. Signed requests carry `created`; servers **SHOULD** reject signatures older than 5 minutes and keep a short replay cache. Epoch pinning and freshness stop replay of old hashi documents. |
+| **Forgery and tampering** | Offers, grants, delegations, rotations, bindings, freshness statements, stamps, reply tokens and messages are all signed. |
+| **The server reading or altering messages** | Envelopes are encrypted end to end to the recipient's agents and signed inside by the sender's agent. The stamp binds the server's certificate to the ciphertext. |
+| **The server lying about trust** | The owner's server is trusted to certify levels to the owner's own agents, just as it is trusted to keep the owner's grants. It can't forge content or a sender's signature. |
+| **Replay** | One-time nonces are burnt on redemption. Signed requests carry `created`; servers **SHOULD** reject signatures older than 5 minutes and keep a short replay cache. Agents discard repeated message `jti` values. Epoch pinning and freshness stop replay of old hashi documents. |
+| **Spam and inbox flooding** | Only senders with a grant, or with a reply token from one of the owner's agents, can put content in an inbox. Level-0 messages carry no content. Messages are capped at 64 KiB, servers rate-limit per sender, and retention is at most 30 days. |
 | **Leaked or photographed offers** | Fragment carriage, short expiry and one-time use limit exposure. Owners **MUST** be notified when an offer is redeemed, showing who redeemed it, so a stolen redemption gets noticed on the spot and revoked. |
 | **Rogue apps claiming `hashi://`** | QR codes and shared links use the HTTPS form ([Section 7.2](#72-carrying-offers)), and the redeem notification shows the owner who actually redeemed. |
-| **Domain or hosting compromise** | Whoever controls `{domain}` can't forge a binding, rotation or delegation, can't roll back the epoch, and can't keep a pre-revocation document alive past the freshness window. First contact relies on trust on first use, unless the requester got a signed offer in person, which pins the HID. |
+| **Domain or hosting compromise** | Whoever controls `{domain}` can't forge a binding, rotation or delegation, can't roll back the epoch, and can't keep a pre-revocation document alive past the freshness window. They can't add an encryption key to `agents`, because the binding covers it. First contact relies on trust on first use, unless the sender got a signed offer in person, which pins the HID. |
 | **Minting offers for someone else's hashi** | Offers must chain to the HID of the hashi they name ([Section 7.1](#71-the-offer-token)). |
 | **Impersonation by display name** | Display names are claims, not identity. Clients show the hashi until a relationship exists, and prefer the user's own contact names after. |
-| **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list, `max_lvl` and role checks. A rotation invalidates all earlier delegations. |
-| **Prompt injection** | HASHI carries no conversation content. The only free text is the display name and the offer note, both untrusted display metadata that **MUST NOT** be given to agents as instructions. Knock intents are constrained tokens. High trust says *who* is knocking, not that what they later say is safe to act on. |
+| **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list, `max_lvl` and role checks. A rotation invalidates all earlier delegations. A stolen agent's encryption key opens messages already sealed to it, so removing it from `agents` quickly matters. |
+| **Prompt injection** | Message bodies are untrusted input at every level and **MUST NOT** be given to a language model as instructions. Outside the envelope, the only free text is the display name and the offer note, both untrusted display metadata. Intents are constrained tokens. High trust says *who* sent a message, not that what it says is safe to act on. |
 | **Server-side request forgery** | See [Section 11](#11-network-security). |
 | **Clock skew** | Verifiers **SHOULD** allow up to 60 seconds on `iat`, `exp` and `created`. |
 
@@ -757,8 +876,9 @@ These rules apply to every URL a HASHI implementation fetches or hands out: hash
 
 ## 13. Privacy and Safety
 
-- **The hashi document is public.** It reveals that a hashi exists and, if published, a display name. Servers **SHOULD** rate-limit resolution to make enumeration expensive. Owners **MAY** omit `display_name` and `protocols`.
-- **Signalling, not surveillance.** The HASHI server sees who knocks and when, never the agent conversation.
+- **The hashi document is public.** It reveals that a hashi exists, how many agents receive messages and, if published, a display name. Servers **SHOULD** rate-limit resolution to make enumeration expensive. Owners **MAY** omit `display_name`.
+- **Sealed, not read.** The HASHI server sees who sends to whom, when, the intent, the thread and the size. It never sees message content. Servers **SHOULD** keep that metadata no longer than the messages themselves.
+- **Wake-ups say nothing.** A wake-up notice carries no part of a message, so push services learn only that something changed.
 - **A `nah` is just a `nah`.** It carries no reason, and a per-HID refusal looks the same as any other ([Section 6.4](#64-zero-is-zero)).
 - **Offers carry only the issuer's own details.**
 - **Domain hashis reveal affiliation.** `john#my.domain` tells people where John works. For personal use, a hashi on a provider's domain gives more privacy.
@@ -773,7 +893,7 @@ This specification requests:
 - the `hashi` URI scheme (provisional);
 - the `hashi` well-known URI suffix;
 - the media type `application/hashi+json`;
-- the HTTP header fields `Hashi-Delegation` and `Hashi-Grant`; and
+- the HTTP header fields `Hashi-Delegation`, `Hashi-Grant` and `Hashi-Reply`; and
 - the JWS header parameter `dlg`.
 
 ---
@@ -782,13 +902,16 @@ This specification requests:
 
 | Protocol | What it does | How HASHI relates |
 |----------|--------------|-------------------|
+| **Email (SMTP, IMAP, JMAP)** | Store-and-forward messaging between independent providers. | The model HASHI follows: your server holds messages until your software picks them up. JMAP's optional push over a polling baseline is the model for waking agents. |
+| **DIDComm v2** | Encrypted agent messaging, with mediators that hold messages for offline agents. | Prior art for HASHI's sealed, sender-signed envelopes and for picking messages up from an always-on server. |
+| **Nostr** | Signed events held by relays that clients subscribe to. | Prior art for a simple server that stores and serves but doesn't route. |
 | **WebFinger**, **NIP-05** | Discover information or keys from a human-readable identifier. | Discovery only. No relationship or trust level. |
 | **DIDs** | Cryptographic identifiers. | Not a human contact mechanism. An HID could later be expressed as a DID. |
-| **A2A** | How agents talk and act after contact. | HASHI supplies the relationship and the credential A2A expects to be obtained separately. |
-| **MCP** | Tool and data connectivity, with OAuth-based authorisation. | Not a trust bootstrap from a human address. Binding to come. |
+| **A2A** | How agents talk and act when both can reach each other. | Agents **MAY** move to A2A after contact, authenticating with their HASHI keys ([Section 9.5](#95-moving-to-another-protocol)). HASHI works when one of them can't be reached. |
+| **MCP** | Tool and data connectivity, with OAuth-based authorisation. | Not a trust bootstrap from a human address. |
 | **Signal, AT Protocol, Matrix** | Keep a person's root key apart from working keys. | Prior art for HASHI's key roles. |
 
-**HASHI:** how I give you an address for me, how much I trust you, and how our software finds a way to talk.
+**HASHI:** how I give you an address for me, how much I trust you, and how our agents reach each other even when they're offline.
 
 ## Appendix B: Open Questions
 
@@ -798,7 +921,7 @@ This specification requests:
 4. **Changing hashi:** moving to a new hashi and telling existing contacts, without telling everyone.
 5. **"Got a hashi?" hand-off:** for people with a hashi but no app, John's page asks for their hashi and sends the offer to an `accept` URL published in their hashi document, where their provider asks them to confirm (similar to Mastodon's remote follow).
 6. **A slicker two-way exchange** than two separate offers, without giving the server signing power over agents.
-7. **MCP binding** via OAuth 2.1.
+7. **Profiles for moving to A2A or MCP** using HASHI agent keys.
 8. **Recovery short of a reset** when an identity key is lost.
 9. **Organisation-level policy** documents.
 10. **Expressing an HID as a DID.**
@@ -812,20 +935,21 @@ This specification requests:
 | RFC 5234 | ABNF |
 | RFC 5890 | Internationalised domain names |
 | RFC 6890 | Special-purpose IP address registries |
-| RFC 7515, 7517, 7518, 7519 | JWS, JWK, JWA, JWT |
+| RFC 7515, 7516, 7517, 7518, 7519 | JWS, JWE, JWK, JWA, JWT |
 | RFC 7638 | JWK thumbprint |
-| RFC 7662 | OAuth 2.0 token introspection |
 | RFC 7800 | Proof-of-possession key semantics for JWTs |
-| RFC 8037 | Ed25519 in JOSE |
+| RFC 8037 | Ed25519 and X25519 in JOSE |
+| RFC 8030 | Generic event delivery using HTTP push (Web Push) |
 | RFC 8615 | Well-known URIs |
 | RFC 9110 | HTTP semantics |
 | RFC 9421 | HTTP message signatures |
-| RFC 9449 | DPoP |
 | RFC 9530 | Digest fields |
 | Unicode UAX #15 | Normalisation forms |
 | [A2A](https://a2a-protocol.org) | Agent2Agent protocol |
 | [MCP](https://modelcontextprotocol.io/specification) | Model Context Protocol |
 | [DID Core](https://www.w3.org/TR/did-core/) | Decentralised identifiers |
+| [DIDComm Messaging v2](https://identity.foundation/didcomm-messaging/spec/v2.1/) | Encrypted agent messaging and mediators |
+| [JMAP](https://www.rfc-editor.org/rfc/rfc8620) | RFC 8620, including its push model |
 | [NIP-05](https://github.com/nostr-protocol/nips/blob/master/05.md) | Mapping Nostr keys to DNS identifiers |
 | [Signal X3DH](https://signal.org/docs/specifications/x3dh/) | Signal key agreement |
 | [AT Protocol](https://atproto.com/specs/did) | DID PLC and rotation keys |
