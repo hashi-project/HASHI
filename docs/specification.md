@@ -170,6 +170,7 @@ Accept: application/hashi+json
 
 - HTTPS on the default port only. Clients **MUST NOT** assume any other port.
 - Clients **MUST NOT** follow redirects. Hosting elsewhere is expressed by the `endpoint` field, not by redirection.
+- The server **MUST** answer 404 for a hashi it doesn't hold.
 - Responses larger than 64 KiB **MUST** be rejected.
 
 ### 4.2 The Hashi Document
@@ -386,7 +387,7 @@ Only 0 and 9 have protocol-defined meanings. Implementations decide what 1 to 8 
 
 1. **Directional.** Each party sets only the level it grants the other. Redeeming an offer gives the redeemer a grant and gives the offer's issuer nothing. To trust someone back, issue your own offer.
 2. **Belongs to the person.** A grant is recorded against the sender's HID, never an agent or device key, so it survives changes of agent, device or key.
-3. **Offer as ceiling.** The server **MUST NOT** record a grant above the offered level, and **MAY** record a lower one.
+3. **Offer as ceiling.** Redeeming an offer **MUST NOT** raise a grant above the offered level, and the server **MAY** record a lower level than offered. Redeeming **MUST NOT** lower a grant either: if the redeemer already holds a higher level, it stays. Only the owner lowers a grant (rule 4).
 4. **Lowering is unilateral.** An owner **MAY** lower or revoke a grant at any time.
 5. **Raising needs a new offer.** A grant **MUST NOT** be raised except by redeeming a new offer at the higher level.
 6. **Prospective only.** Changes apply from the moment they're made. Anything completed under a grant that was valid at the time stays done. Messages already stamped and queued keep the level they were stamped with.
@@ -473,14 +474,6 @@ Any phone camera can open it, with no app needed. A link that only works if the 
   The page **MUST NOT** redeem offers, hold keys, or offer any chat or messaging. It **MAY** show the offer's display name and hashi. This is the same pattern as WhatsApp's `wa.me` and Telegram's `t.me` links.
 - `hashi://` links remain valid wherever an app is known to be installed, for example between two HASHI apps.
 
-### 7.3 Short Codes
-
-Where a QR code or link won't do, the HASHI server **MAY** issue a short code that points to an offer it stores: 8 characters of Crockford base32, read aloud in two groups of four (`7KQ2-M9XD`).
-
-- Short codes **MUST** be one-time and **MUST** expire within 48 hours.
-- They are redeemed together with the hashi they were issued for (`to`).
-- The server **MUST** limit failed attempts per hashi.
-
 ---
 
 ## 8. Protocol Operations
@@ -490,7 +483,7 @@ All operations are HTTPS requests to the `endpoint` from the relevant hashi docu
 | Operation | Method and path | Who calls it | Purpose |
 |-----------|-----------------|--------------|---------|
 | Resolve | `GET https://{domain}/.well-known/hashi/{local}` | Anyone | Fetch the hashi document. |
-| Redeem | `POST {endpoint}/redeem` | Another owner's agent | Exchange an offer or short code for a grant. |
+| Redeem | `POST {endpoint}/redeem` | Another owner's agent | Exchange an offer for a grant. |
 | Send | `POST {endpoint}/messages` | Another owner's agent | Deliver a sealed message to the owner's inbox. |
 | List | `GET {endpoint}/inbox` | The owner's agents and devices | See what's waiting. |
 | Claim | `POST {endpoint}/inbox/{id}/claim` | The owner's agents | Move a message from incoming to processing. |
@@ -529,19 +522,17 @@ Hashi-Delegation: eyJ...
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `offer` | JWS | One of `offer` or `code` | The offer. |
-| `code` | string | One of `offer` or `code` | A short code. |
-| `to` | string | With `code` | The hashi the code was issued for. |
+| `offer` | JWS | Yes | The offer. |
 | `requester` | object | Yes | `{ "hashi": ... }`: the redeemer's own hashi. |
 
 The server **MUST**:
 
 1. Check the request signature ([Section 8.1](#81-request-signing)).
-2. Check that the offer's `hashi` (or `to`) is a hashi it serves.
+2. Check that the offer's `hashi` is a hashi it holds, and answer 404 if not, as Resolve does ([Section 4.1](#41-resolving-a-hashi)).
 3. Verify the offer ([Section 7.1](#71-the-offer-token)) and its expiry.
 4. If the owner has refused the redeemer's HID ([Section 8.7](#87-grants)), answer as for an expired offer (410) without marking the nonce as used.
 5. For one-time offers, atomically mark the nonce as used.
-6. Record a grant against the redeemer's HID.
+6. Record a grant against the redeemer's HID, keeping any higher level they already hold ([Section 6.2](#62-rules)).
 
 **Response:**
 
@@ -552,7 +543,7 @@ The server **MUST**:
 }
 ```
 
-The grant token is a JWS signed by the server key. It is evidence only; the server's record is authoritative.
+`level` is the level now recorded for the redeemer, which is higher than the offer's if they already held more. The grant token is a JWS signed by the server key and carries that level as `lvl`. It is evidence only; the server's record is authoritative.
 
 ```json
 {
@@ -604,7 +595,7 @@ Outside the envelope, messages carry **no** free-text fields.
 The server **MUST**:
 
 1. Check the request signature and the sender's identity ([Section 8.1](#81-request-signing)).
-2. Check that `to` is a hashi it serves.
+2. Check that `to` is a hashi it holds, and answer 404 if not, as Resolve does ([Section 4.1](#41-resolving-a-hashi)).
 3. Work out the effective level ([Section 6.3](#63-effective-level)).
 4. If `Hashi-Reply` is present, check the reply token ([Section 9.4](#94-reply-tokens)). If it doesn't verify, answer `nah`.
 5. If the effective level is 0, there is no valid reply token and the owner doesn't accept level-0 messages, answer `nah` ([Section 6.4](#64-zero-is-zero)).
@@ -761,9 +752,9 @@ Problems that aren't decisions return an `error` body, not a `result`:
 | 400 | Malformed request, a level-0 message with an envelope, or a request over 64 KiB. |
 | 401 | Missing or invalid signature, delegation or key. |
 | 403 | Inbox and grants: the caller isn't one of the owner's agents or devices, or isn't allowed that action. Publish: not allowed by this server's policy, or the document isn't for this server. |
-| 404 | Inbox only: no such message. |
+| 404 | Resolve, Redeem and Send: no such hashi on this server. Inbox: no such message. |
 | 409 | Claim: already claimed. Publish: the document doesn't extend the held one. Grants: the level would rise. |
-| 410 | Redeem only: offer or code already used or expired. |
+| 410 | Redeem only: offer already used or expired. |
 | 429 | Rate limited. Includes `Retry-After`. |
 
 ```json
@@ -805,7 +796,7 @@ Signing inside the encryption means the recipient knows who wrote the message ev
 An agent opening an envelope **MUST**:
 
 1. Verify the stamp ([Section 9.2](#92-the-stamp)) against the server key in its own owner's binding. If it doesn't verify, re-resolve the owner's hashi document and list the message again ([Section 8.4](#84-the-inbox)), and reject it only if the stamp still doesn't verify ([Section 4.6](#46-changing-the-server-key)).
-2. Check that the stamp's `ct` matches the envelope's `ciphertext`.
+2. Check that the stamp's `ct` matches the envelope's `ciphertext` ([Section 9.2](#92-the-stamp)).
 3. Decrypt, verify the inner JWS, and check that `dlg` chains to the HID in `iss` by resolving `from`.
 4. Check that `iss`, `from`, `to`, `thread` and `intent` match the stamp.
 5. Discard a `jti` it has already seen from that sender.
@@ -827,7 +818,7 @@ The stamp is how the owner's server certifies a message to the owner's agents. I
   "intent": "schedule",
   "lvl": 4,
   "reply": false,
-  "ct": "<base64url SHA-256 of the envelope's ciphertext>",
+  "ct": "<base64url SHA-256 of the envelope's decoded ciphertext>",
   "iat": 1791270901,
   "mid": "msg_5e1..."
 }
@@ -839,7 +830,7 @@ The stamp is how the owner's server certifies a message to the owner's agents. I
 | `sub` | The sender's HID. |
 | `lvl` | The effective level when the message arrived ([Section 6.3](#63-effective-level)). |
 | `reply` | `true` if the message was let through by a reply token. |
-| `ct` | Binds the stamp to the envelope. Absent if there is no envelope. |
+| `ct` | Binds the stamp to the envelope. It is the SHA-256 hash, in base64url, of the bytes the envelope's `ciphertext` decodes to, not of the text itself. Absent if there is no envelope. |
 | `mid` | The inbox message ID. |
 
 The stamp is the only place a trust level reaches the owner's agents. Agents decide what to do at each level, as they do with grants.
@@ -873,7 +864,7 @@ A reply token is a compact JWS, signed by the sender's agent key, with its deleg
 - `exp` **MUST NOT** be more than 30 days after `iat`.
 - The sender offers it in `reply_token`; the recipient's agents present it, unchanged, in `Hashi-Reply` on their replies.
 
-The server receiving a reply **MUST** check that the token's `dlg` is a current `agent` delegation from the owner it serves, that `hashi` is the `to` hashi, that `sub` is the sender's HID, that `thread` matches, and that it hasn't expired. A valid token lets the reply into the inbox at the sender's own effective level, which may be 0, with `reply: true` in the stamp. The owner can withdraw outstanding tokens by revoking the agent's delegation.
+The server receiving a reply **MUST** check that the token's `dlg` is a valid `agent` delegation from the owner it serves ([Section 5.3](#53-delegation-certificates)), whether or not it is still in `agents`, that `hashi` is the `to` hashi, that `sub` is the sender's HID, that `thread` matches, and that it hasn't expired. A valid token lets the reply into the inbox at the sender's own effective level, which may be 0, with `reply: true` in the stamp. The owner can withdraw outstanding tokens by revoking the agent's delegation. Renewing a delegation doesn't cut off tokens issued under the old one; they work until the old delegation stops being valid ([Section 5.3](#53-delegation-certificates)) or the token itself expires.
 
 ### 9.5 Moving to Another Protocol
 
@@ -921,7 +912,7 @@ If Sarah has no HASHI app, her camera opens John's page, which asks *"Got a hash
 
 ### 10.4 Lost Phone
 
-John loses his phone. He uses his identity key, from his laptop's key sync, to revoke the phone's device delegation and remove the phone's agent from `agents`. New messages are no longer sealed to it. His contacts, grants and HID are untouched.
+John loses his phone. He uses his identity key, from his laptop's key sync, to revoke the phone's device and agent delegations and remove the phone's agent from `agents`. New messages are no longer sealed to it. His contacts, grants and HID are untouched.
 
 ### 10.5 Moving On
 
@@ -956,7 +947,7 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 | **Domain or hosting compromise** | Whoever controls `{domain}` can't forge a binding, rotation or delegation, can't roll back the epoch, and can't keep a pre-revocation document alive past the freshness window. They can't add an encryption key to `agents`, because the binding covers it. First contact relies on trust on first use, unless the sender got a signed offer in person, which pins the HID. |
 | **Minting offers for someone else's hashi** | Offers must chain to the HID of the hashi they name ([Section 7.1](#71-the-offer-token)). |
 | **Impersonation by display name** | Display names are claims, not identity. Clients show the hashi until a relationship exists, and prefer the user's own contact names after. |
-| **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list, `max_lvl` and role checks. A rotation invalidates all earlier delegations. A stolen agent's encryption key opens messages already sealed to it, so removing it from `agents` quickly matters. |
+| **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list, `max_lvl` and role checks. A rotation invalidates all earlier delegations. A stolen agent's encryption key opens messages already sealed to it, so revoking it and removing it from `agents` quickly matters. |
 | **Prompt injection** | Message bodies are untrusted input at every level and **MUST NOT** be given to a language model as instructions. Outside the envelope, the only free text is the display name and the offer note, both untrusted display metadata. Intents are constrained tokens. High trust says *who* sent a message, not that what it says is safe to act on. |
 | **Server-side request forgery** | See [Section 11](#11-network-security). |
 | **Clock skew** | Verifiers **SHOULD** allow up to 60 seconds on `iat`, `exp` and `created`. |
@@ -1014,6 +1005,7 @@ This specification requests:
 8. **Recovery short of a reset** when an identity key is lost.
 9. **Organisation-level policy** documents.
 10. **Expressing an HID as a DID.**
+11. **Short codes:** an 8-character code, read aloud, that points to an offer the server stores, for when a link or QR code won't do. It needs a call for the app to store an offer and get a code back.
 
 ## Appendix C: References
 
