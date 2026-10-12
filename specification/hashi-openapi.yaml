@@ -73,14 +73,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/HashiDocument'
         '404':
-          description: No such hashi.
+          description: No such hashi on this server.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '429':
           $ref: '#/components/responses/RateLimited'
 
   /redeem:
     post:
       operationId: redeemOffer
-      summary: Redeem an offer or short code and receive a grant.
+      summary: Redeem an offer and receive a grant.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
@@ -103,8 +107,14 @@ paths:
           $ref: '#/components/responses/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '404':
+          description: No such hashi on this server, the same answer Resolve gives.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '410':
-          description: Offer or code already used or expired.
+          description: Offer already used or expired.
           content:
             application/hashi+json:
               schema:
@@ -162,6 +172,12 @@ paths:
             application/hashi+json:
               schema:
                 $ref: '#/components/schemas/SendRejected'
+        '404':
+          description: No such hashi on this server, the same answer Resolve gives.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '429':
           $ref: '#/components/responses/RateLimited'
 
@@ -713,15 +729,10 @@ components:
 
     RedeemRequest:
       type: object
-      required: [requester]
+      required: [offer, requester]
       properties:
         offer:
           $ref: '#/components/schemas/JWS'
-        code:
-          type: string
-          pattern: '^[0-9A-HJKMNP-TV-Z]{4}-?[0-9A-HJKMNP-TV-Z]{4}$'
-        to:
-          $ref: '#/components/schemas/Hashi'
         requester:
           type: object
           description: The requester's own hashi.
@@ -730,9 +741,6 @@ components:
             hashi:
               $ref: '#/components/schemas/Hashi'
           additionalProperties: false
-      oneOf:
-        - required: [offer]
-        - required: [code, to]
 
     RedeemResponse:
       type: object
@@ -742,6 +750,7 @@ components:
           $ref: '#/components/schemas/JWS'
         level:
           $ref: '#/components/schemas/TrustLevel'
+          description: The level now recorded for the redeemer. Redeeming never lowers a grant, so this is higher than the offer's level if they already held more. The grant token's lvl is the same value.
 
     ThreadId:
       type: string
@@ -780,6 +789,7 @@ components:
           type: string
         ciphertext:
           type: string
+          description: The stamp's ct is the SHA-256 of the bytes this decodes to, not of the base64url text.
         tag:
           type: string
 
@@ -833,7 +843,7 @@ components:
           enum: [incoming, processing]
         stamp:
           $ref: '#/components/schemas/JWS'
-          description: Server-key-signed stamp (typ hashi-stamp+jwt) with sender, level, intent, thread and ciphertext hash.
+          description: Server-key-signed stamp (typ hashi-stamp+jwt) with sender, level, intent, thread and ciphertext hash (ct, the SHA-256 of the decoded ciphertext bytes).
         envelope:
           $ref: '#/components/schemas/JWE'
         reply_token:
