@@ -11,12 +11,16 @@ info:
     The recipient's agents pick it up when they come online. The server
     can't read messages and doesn't route them.
 
-    Authentication: every operation except resolveHashi and
-    publishDocument MUST carry HTTP
+    Authentication: every operation except resolveHashi,
+    getServerDocument, fetchOffer and publishDocument MUST carry HTTP
     Message Signatures (RFC 9421) made with the caller's agent or device
-    key, covering @method, @target-uri, created and (with a body)
-    content-digest; sends also cover hashi-grant, hashi-reply and
-    hashi-delegation when present. The caller sends its delegation in
+    key, covering @method, @authority, @path, created, each query
+    parameter by name (@query-param) and (with a body) content-digest;
+    sends also cover hashi-grant, hashi-reply and hashi-delegation when
+    present. Servers MUST reject a request that repeats a query parameter
+    name or carries one the signature doesn't cover. Query parameter
+    names and values MUST use only ASCII letters, digits, -, . and _.
+    The caller sends its delegation in
     Hashi-Delegation. On redeem and send, the delegation's iss MUST equal
     the HID of the claimed hashi (requester.hashi on redeem, from on send).
     On inbox and grants operations, the delegation MUST belong to the
@@ -45,6 +49,35 @@ servers:
         default: hashi.my.domain/v1
 
 paths:
+  /.well-known/hashi:
+    get:
+      operationId: getServerDocument
+      summary: Find a domain's HASHI endpoint, server key and sign-up page.
+      description: |
+        For an app that knows only a domain, for example before signing up.
+        Clients MUST NOT follow redirects. A 404 means the domain has no
+        server document, so apps can't sign up there.
+      servers:
+        - url: https://{domain}
+          variables:
+            domain:
+              default: my.domain
+      responses:
+        '200':
+          description: Server document.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/ServerDocument'
+        '404':
+          description: No server document on this domain.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /.well-known/hashi/{local}:
     get:
       operationId: resolveHashi
@@ -81,10 +114,50 @@ paths:
         '429':
           $ref: '#/components/responses/RateLimited'
 
+  /h/{code}:
+    get:
+      operationId: fetchOffer
+      summary: Fetch the offer behind a short link.
+      description: |
+        This path is the short link itself. A request whose Accept header
+        names application/hashi+json gets the offer; any other, even one with
+        Accept: */*, gets the "Got a hashi?" page, which MUST NOT include the
+        offer or say who it's from. Fetching doesn't use the link up. A link
+        works only until someone first redeems its offer, even a multi-use
+        one, or a refused HID tries to. It also stops once the offer no longer
+        verifies, for example because it expired, its device was revoked, or
+        the hashi was reset or deleted. Clients MUST NOT follow redirects.
+      servers:
+        - url: https://{domain}
+          variables:
+            domain:
+              default: my.domain
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ShortLinkCode'
+      responses:
+        '200':
+          description: The offer.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/StoredOffer'
+        '404':
+          description: Unknown code, or the link has stopped, with the same answer whichever it is.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /redeem:
     post:
       operationId: redeemOffer
-      summary: Redeem an offer and receive a grant.
+      summary: Redeem an offer. Raising a level waits for the owner to confirm.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
@@ -98,11 +171,17 @@ paths:
               $ref: '#/components/schemas/RedeemRequest'
       responses:
         '200':
-          description: Grant recorded.
+          description: The redeemer already held the offered level or more, so there was nothing to confirm.
           content:
             application/hashi+json:
               schema:
                 $ref: '#/components/schemas/RedeemResponse'
+        '202':
+          description: Held until the owner confirms. The redeemer's level doesn't change until then.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/RedeemPending'
         '400':
           $ref: '#/components/responses/Error'
         '401':
@@ -330,7 +409,7 @@ paths:
       operationId: registerWakeChannel
       summary: OPTIONAL. Register a wake-up channel for the calling agent.
       description: |
-        Wake-up notices say only that the inbox changed. They MUST NOT carry
+        Wake-up notices say only that the inbox or grants changed. They MUST NOT carry
         any part of a message, its stamp or its sender. For webpush, params
         is the agent's push subscription and the push message body is empty.
       parameters:
@@ -364,8 +443,11 @@ paths:
         document only if it verifies, is for a hashi hosted here with this
         server's endpoint, binds this server's current key or its srv_next and, when a document is
         already held, has the same HID, a higher epoch and a rotation chain
-        extending the held one. Whether a first publish is accepted is server
-        policy; a reset (new HID) is not done through this call.
+        extending the held one. A server with a sign-up page accepts a first
+        publish only from the HID the name was reserved for; otherwise whether
+        a first publish is accepted is server policy. A reset (new HID) is not
+        done through this call, and a publish accepted here cancels any
+        pending reset.
       security: []
       requestBody:
         required: true
@@ -383,7 +465,7 @@ paths:
         '400':
           $ref: '#/components/responses/Error'
         '403':
-          description: First publish not allowed by server policy, or the document isn't for this server (hashi, endpoint or binding srv).
+          description: A first publish this server doesn't allow (the name is reserved for another HID, or its policy refuses it), or the document isn't for this server (hashi, endpoint or binding srv).
           content:
             application/hashi+json:
               schema:
@@ -400,7 +482,7 @@ paths:
   /grants:
     get:
       operationId: listGrants
-      summary: List the grants the owner has given, and refused HIDs. Any of the owner's agents or devices.
+      summary: List the grants the owner has given, refused HIDs and acceptances waiting for the owner. Any of the owner's agents or devices.
       description: Not subject to the 64 KiB response cap, as it comes from the owner's own server.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
@@ -422,11 +504,16 @@ paths:
 
   /grants/{hid}:
     put:
-      operationId: lowerGrant
-      summary: Lower or remove a grant, or refuse a HID. One of the owner's devices only.
+      operationId: setGrant
+      summary: Confirm, lower or remove a grant, or refuse a HID. One of the owner's devices only.
       description: |
-        The level MUST NOT be higher than the recorded one (0 if none);
-        raising needs a new offer. Level 0 removes the grant. refuse true
+        The level MUST NOT be higher than the recorded one, or the pending
+        one if that is higher (0 if neither); raising needs a new offer and
+        this confirm. A device can't confirm a level above its own max_lvl.
+        Level 0 removes the grant. A request for a HID with a pending
+        acceptance answers it: the pending level confirms it, a level between
+        that and the current one confirms less, and the current level or
+        lower declines it. refuse true
         sets the level to 0 and refuses the HID (its messages get nah, its
         redemptions are answered as expired); false lifts a refusal without
         granting anything; omitted keeps the setting.
@@ -445,7 +532,7 @@ paths:
         content:
           application/hashi+json:
             schema:
-              $ref: '#/components/schemas/LowerGrant'
+              $ref: '#/components/schemas/SetGrant'
       responses:
         '200':
           description: The entry as now recorded.
@@ -460,7 +547,59 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: The level is higher than the recorded one.
+          description: The level is higher than both the recorded and the pending level.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /offers:
+    post:
+      operationId: storeOffer
+      summary: Hold an offer behind a short link. One of the owner's devices only.
+      description: |
+        The request MUST be signed by a device delegation of the hashi the
+        offer is for. The server verifies the offer and its expiry as Redeem
+        does. The short link is https://{domain}/h/{code} on the hashi's
+        domain. Short links are optional: a server that can't serve /h/ on
+        the hashi's domain answers 404, and the app shares the long form
+        instead.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/ContentDigest'
+        - $ref: '#/components/parameters/HashiDelegation'
+      requestBody:
+        required: true
+        content:
+          application/hashi+json:
+            schema:
+              $ref: '#/components/schemas/StoredOffer'
+      responses:
+        '200':
+          description: The code for the short link.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/StoreOfferResponse'
+        '400':
+          description: Malformed request, or an offer that doesn't verify or has expired.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Not signed by a device delegation of the hashi the offer is for.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No short links on the hashi's domain.
           content:
             application/hashi+json:
               schema:
@@ -624,6 +763,15 @@ components:
           $ref: '#/components/schemas/TrustLevel'
         refused:
           type: boolean
+        pending:
+          type: object
+          description: Present while someone has redeemed an offer and the owner hasn't answered. The offer's level and nonce, so the owner's app can tell which offer it was. An entry with pending always carries the hashi the redeemer gave.
+          required: [level, nonce]
+          properties:
+            level:
+              $ref: '#/components/schemas/TrustLevel'
+            nonce:
+              type: string
         updated:
           type: integer
           description: When the entry last changed or an offer was last redeemed for it (seconds since the epoch).
@@ -637,7 +785,7 @@ components:
           items:
             $ref: '#/components/schemas/Grant'
 
-    LowerGrant:
+    SetGrant:
       type: object
       required: [level]
       properties:
@@ -699,7 +847,7 @@ components:
           $ref: '#/components/schemas/JWS'
         fresh:
           $ref: '#/components/schemas/JWS'
-          description: Server-key-signed {hid, epoch, iat, srv_next when the server is changing key}, re-signed at least hourly; rejected if older than 24 hours.
+          description: Server-key-signed {hid, epoch, iat, srv_next when the server is changing key, reset while a reset or deletion started without the identity key is pending}, re-signed at least hourly; rejected if older than 24 hours. reset is {hashi, action (reset or delete), hid (the new HID, for a reset), at (earliest time it may go ahead)}.
         endpoint:
           $ref: '#/components/schemas/HttpsUrl'
         level0:
@@ -750,7 +898,54 @@ components:
           $ref: '#/components/schemas/JWS'
         level:
           $ref: '#/components/schemas/TrustLevel'
-          description: The level now recorded for the redeemer. Redeeming never lowers a grant, so this is higher than the offer's level if they already held more. The grant token's lvl is the same value.
+          description: The level the redeemer holds, which is higher than the offer's if they already held more. The grant token's lvl is the same value.
+
+    RedeemPending:
+      type: object
+      required: [pending]
+      properties:
+        pending:
+          type: boolean
+          const: true
+
+    ServerDocument:
+      type: object
+      required: [version, endpoint, srv]
+      properties:
+        version:
+          $ref: '#/components/schemas/HashiDocument/properties/version'
+        endpoint:
+          $ref: '#/components/schemas/HttpsUrl'
+          description: The endpoint that hashi documents on this domain use.
+        srv:
+          $ref: '#/components/schemas/PublicJWK'
+          description: The server key, which a first binding names.
+        signup:
+          $ref: '#/components/schemas/HttpsUrl'
+          description: The sign-up page, opened in the device's default browser app with hashi and hid in the fragment. Left out if the server has none.
+        account:
+          $ref: '#/components/schemas/HttpsUrl'
+          description: Where people manage their account with this server, including terms, privacy and deleting their hashi.
+
+    ShortLinkCode:
+      type: string
+      description: A short link's code, 16 letters and digits chosen at random (about 95 bits).
+      pattern: '^[A-Za-z0-9]{16}$'
+
+    StoredOffer:
+      type: object
+      required: [offer]
+      properties:
+        offer:
+          $ref: '#/components/schemas/JWS'
+      additionalProperties: false
+
+    StoreOfferResponse:
+      type: object
+      required: [code]
+      properties:
+        code:
+          $ref: '#/components/schemas/ShortLinkCode'
 
     ThreadId:
       type: string

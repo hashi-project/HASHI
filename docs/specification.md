@@ -43,7 +43,7 @@ HASHI fills that gap the way an email address and an address book do:
 
 1. A **hashi** is an address you hand out: `john#my.domain`.
 2. An **offer**, usually a QR code or link, invites someone in at a trust level.
-3. **Redeeming** the offer records a **grant**.
+3. **Redeeming** the offer records a **grant**, once you confirm who redeemed it.
 4. Later, the other person's agent **sends** a sealed message to your HASHI server. The server checks who it is and what they're allowed, **stamps** the message with their trust level and puts it in your **inbox**.
 5. When one of your agents comes online, it picks the message up, decides whether it's for it, and replies the same way. If both agents can reach each other directly, they **MAY** agree to carry on over A2A or another protocol.
 
@@ -65,6 +65,7 @@ HASHI fills that gap the way an email address and an address book do:
 | Trust levels, offers and grants | How a HASHI app presents offers, messages and confirmations to its user |
 | Sending, stamping and queueing sealed messages | How agents decide which messages are for them |
 | Threads and replies | Any protocol agents move to after contact |
+| Signing up, and resets without the identity key | Which checks a server runs before someone signs up |
 
 Responsibility for agent behaviour rests with whoever operates the agent. This specification is a guide: implementations decide what each trust level unlocks.
 
@@ -131,6 +132,8 @@ domain   = <DNS name, A-label form when transmitted>
 | Link (for QR codes and sharing) | `https://my.domain/.well-known/hashi/john` |
 
 Clients **MUST** convert between these forms exactly as shown, and **MUST** treat the link form as equivalent to the URI form. Either **MAY** carry an offer in its fragment ([Section 7.2](#72-carrying-offers)).
+
+A short link ([Section 7.3](#73-short-links)) is different: `https://my.domain/h/K7q2mX9pTzR4wB1c`, or `hashi://my.domain/h/K7q2mX9pTzR4wB1c` inside an app, stands for one offer and names no hashi. Its path has two segments, so it can't be mistaken for a hashi's.
 
 ### 3.3 Bare Hashis
 
@@ -241,7 +244,7 @@ On first success, the verifier pins the HID, the identity key and the epoch. The
 
 Pinning protects only a verifier that has already seen the latest epoch. Freshness limits how long a stale document can fool one that hasn't.
 
-- The HASHI server **MUST** serve `fresh`: a JWS signed by the server key with payload `{ "hid", "epoch", "iat" }`, re-signed at least every hour. While the server is changing its key, the payload also carries `srv_next` ([Section 4.6](#46-changing-the-server-key)); other verifiers ignore it.
+- The HASHI server **MUST** serve `fresh`: a JWS signed by the server key with payload `{ "hid", "epoch", "iat" }`, re-signed at least every hour. While the server is changing its key, the payload also carries `srv_next` ([Section 4.6](#46-changing-the-server-key)); other verifiers ignore it. While a reset or deletion started without the identity key is waiting to happen ([Section 8.6](#86-publish)), the payload also carries `reset`: `{ "hashi": ..., "action": "reset" | "delete", "hid": ..., "at": ... }`. `hid` is the new HID a reset will hand the name to, and `at` is the earliest time the server may go ahead, in seconds since the epoch. The hashi is named because one HID can hold several hashis on a server. Nothing about the sign-up account goes in.
 - Verifiers **MUST** reject a document whose `fresh` is older than 24 hours or whose epoch doesn't match.
 - Verifiers **MUST NOT** rely on a cached hashi document older than one hour when deciding a redeem or a send, or when sealing a message.
 
@@ -255,6 +258,36 @@ The binding names one server key, `srv`, and only the owner's identity key can s
 4. The server **MAY** go on accepting grant tokens it signed with its previous key. They are only evidence, and its own records decide ([Section 6.3](#63-effective-level)). A grant token the server doesn't accept is treated as absent, never as a reason for 401 or `nah`.
 
 A new server key **MUST** be newly generated, never a previous key reused.
+
+### 4.7 The Server Document
+
+An app that knows only a domain, because someone typed it or picked it from a list, learns about that domain's HASHI server from the server document:
+
+```http
+GET /.well-known/hashi HTTP/1.1
+Host: {domain}
+Accept: application/hashi+json
+```
+
+```json
+{
+  "version": "0.1",
+  "endpoint": "https://hashi.my.domain/v1",
+  "srv": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." },
+  "signup": "https://my.domain/signup",
+  "account": "https://my.domain/account"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `version` | string | Yes | Protocol version. |
+| `endpoint` | URL | Yes | The `endpoint` that hashi documents on this domain use. |
+| `srv` | JWK | Yes | The server key, which a first binding names ([Section 4.3](#43-the-binding)). |
+| `signup` | URL | No | The sign-up page ([Section 8.6](#86-publish)). Left out if the server has none. |
+| `account` | URL | No | Where people manage their account with this server: terms, privacy and deleting their hashi. |
+
+No hashi can have this path, because every hashi's path has a name after `hashi/`. The rules for Resolve apply: HTTPS on the default port, no redirects, and nothing over 64 KiB.
 
 ---
 
@@ -328,7 +361,7 @@ Device and agent keys are authorised by a delegation: a compact JWS signed by th
 | `hashi` | string | Yes | The owner's hashi. |
 | `cnf.jwk` | JWK | Yes | The delegated signing public key. |
 | `enc` | JWK | Agent only | The agent's encryption public key ([Section 5.1](#51-algorithms)). Required for role `agent`. |
-| `max_lvl` | integer | Yes | Agent: highest level it may act at. Device: highest offer level it may sign. |
+| `max_lvl` | integer | Yes | Agent: highest level it may act at. Device: highest level it may sign an offer for or confirm. |
 | `epoch` | integer | Yes | The owner's epoch at issue. |
 | `iat`, `exp` | integer | Yes | `exp` **MUST NOT** be more than 90 days after `iat`. Device delegations **SHOULD** be short-lived (for example 30 days). |
 | `jti` | string | Yes | Unique ID, used for revocation. |
@@ -340,7 +373,7 @@ A verifier **MUST** reject a delegation that:
 - is not signed by the current identity key; or
 - has an `epoch` lower than that of the most recent rotation. (A rotation therefore kills every earlier delegation, including any minted with a stolen key.)
 
-Verifiers **MUST** also check `role`: offers **MUST** be signed by a `device` delegation; redeems, messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages, and listing grants, **MAY** be signed by either role ([Section 8.4](#84-the-inbox), [Section 8.7](#87-grants)). Lowering a grant or refusing a HID **MUST** be signed by a `device` delegation.
+Verifiers **MUST** also check `role`: offers **MUST** be signed by a `device` delegation; redeems, messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages, and listing grants, **MAY** be signed by either role ([Section 8.4](#84-the-inbox), [Section 8.7](#87-grants)). Storing an offer ([Section 7.3](#73-short-links)), confirming or lowering a grant, or refusing a HID, **MUST** be signed by a `device` delegation.
 
 ### 5.4 Key Rotation
 
@@ -367,7 +400,7 @@ A rotation statement is a compact JWS signed by the **outgoing** identity key:
 |-----------|--------------|
 | **Lost or stolen device** | The owner revokes its delegations and removes any agent on it from `agents` (this needs the identity key, as it changes the binding). Messages already sealed to that agent's encryption key can be read by whoever holds the device, so encryption keys **SHOULD** be non-exportable. Short-lived offers from that device expire on their own, and the delegation's expiry is the backstop until it is revoked. The identity is unaffected. |
 | **Identity key compromised, still in the owner's hands** | Rotate to a new key and revoke everything. |
-| **Identity key lost, or an attacker may have rotated first** | Reset: a new identity key and therefore a new HID. Contacts see a new identity, trust drops to 0, and the owner shares fresh offers. A reset is always possible. |
+| **Identity key lost, or an attacker may have rotated first** | Reset: a new identity key and therefore a new HID. Contacts see a new identity, trust drops to 0, and the owner shares fresh offers. Whoever holds the current identity key can block a reset of the same name ([Section 8.6](#86-publish)), so if an attacker has it, the owner has to start a new hashi, which is always possible. |
 
 ---
 
@@ -385,11 +418,11 @@ Only 0 and 9 have protocol-defined meanings. Implementations decide what 1 to 8 
 
 ### 6.2 Rules
 
-1. **Directional.** Each party sets only the level it grants the other. Redeeming an offer gives the redeemer a grant and gives the offer's issuer nothing. To trust someone back, issue your own offer.
+1. **Directional.** Each party sets only the level it grants the other. Redeeming an offer can give the redeemer a grant, once the owner confirms it, and gives the offer's issuer nothing. To trust someone back, issue your own offer.
 2. **Belongs to the person.** A grant is recorded against the sender's HID, never an agent or device key, so it survives changes of agent, device or key.
-3. **Offer as ceiling.** Redeeming an offer **MUST NOT** raise a grant above the offered level, and the server **MAY** record a lower level than offered. Redeeming **MUST NOT** lower a grant either: if the redeemer already holds a higher level, it stays. Only the owner lowers a grant (rule 4).
+3. **Offer as ceiling.** A grant **MUST NOT** be raised above the level of the offer redeemed, though the owner **MAY** confirm a lower one. Redeeming **MUST NOT** lower a grant either: if the redeemer already holds a higher level, it stays. Only the owner lowers a grant (rule 4).
 4. **Lowering is unilateral.** An owner **MAY** lower or revoke a grant at any time.
-5. **Raising needs a new offer.** A grant **MUST NOT** be raised except by redeeming a new offer at the higher level.
+5. **Raising needs an offer and a confirm.** A grant **MUST NOT** be raised except by redeeming a new offer at the higher level, and then only once the owner confirms it from a device ([Section 8.7](#87-grants)). Until then the redemption is pending and the old level applies.
 6. **Prospective only.** Changes apply from the moment they're made. Anything completed under a grant that was valid at the time stays done. Messages already stamped and queued keep the level they were stamped with.
 7. **Policy belongs to the owner's software.** Which levels may be offered remotely or in person, on multi-use offers, or with what expiry, is up to the owner's implementation. The protocol only carries the level and enforces it as a ceiling.
 
@@ -456,7 +489,7 @@ A HASHI server redeeming an offer **MUST** apply these checks against its own re
 
 ### 7.2 Carrying Offers
 
-An offer is a capability: whoever redeems it first gets the grant. It therefore travels in the URI **fragment**, which is never sent to a server and so stays out of server logs, browser history, Referer headers and link-preview bots.
+An offer is a capability: anyone holding it can redeem it, though nothing changes until the owner confirms who did. It therefore travels in the URI **fragment**, which is never sent to a server and so stays out of server logs, browser history, Referer headers and link-preview bots.
 
 **QR codes and shared links SHOULD use the HTTPS form**, on the offerer's domain:
 
@@ -474,16 +507,65 @@ Any phone camera can open it, with no app needed. A link that only works if the 
   The page **MUST NOT** redeem offers, hold keys, or offer any chat or messaging. It **MAY** show the offer's display name and hashi. This is the same pattern as WhatsApp's `wa.me` and Telegram's `t.me` links.
 - `hashi://` links remain valid wherever an app is known to be installed, for example between two HASHI apps.
 
+### 7.3 Short Links
+
+A whole offer makes a dense QR code and a long link, which some chat apps cut short. A server **MAY** therefore hold an offer for its owner and give back a code for a **short link** on the hashi's domain:
+
+```text
+https://my.domain/h/K7q2mX9pTzR4wB1c
+```
+
+**Storing an offer.** The owner's app sends the signed offer to its own server:
+
+```http
+POST /v1/offers HTTP/1.1
+Host: hashi.my.domain
+Content-Type: application/hashi+json
+Signature-Input: ...
+Signature: ...
+Hashi-Delegation: eyJ...
+
+{ "offer": "<offer JWS>" }
+```
+
+The request **MUST** be signed by a `device` delegation of the hashi the offer is for. The server verifies the offer and its expiry as Redeem does ([Section 7.1](#71-the-offer-token)), answers 400 if either check fails, and otherwise answers 200 with a new code:
+
+```json
+{ "code": "K7q2mX9pTzR4wB1c" }
+```
+
+The server **MUST** choose each code at random: 16 letters and digits (A-Z, a-z, 0-9), about 95 bits, so nobody can guess one. A short link works only until someone first redeems its offer, even a multi-use one. An attempt from a refused HID ([Section 8.7](#87-grants)) stops it too, so the link can't show them they were refused. It also stops once the offer no longer verifies, for example because it has expired, the device that signed it was revoked, or the hashi was reset or deleted. Once a link stops, the server drops the offer. A server that can't serve `/h/` on the hashi's domain answers 404, and the app shares the long form ([Section 7.2](#72-carrying-offers)) instead. Short links are optional because `/h/` is a path on the domain's own website, outside `/.well-known`, and not every domain can spare it.
+
+**Opening a short link.** The app fetches the link itself, naming `application/hashi+json` in its `Accept` header:
+
+```http
+GET /h/K7q2mX9pTzR4wB1c HTTP/1.1
+Host: my.domain
+Accept: application/hashi+json
+```
+
+```json
+{ "offer": "<offer JWS>" }
+```
+
+It then verifies the offer and carries on as with any other ([Section 7.1](#71-the-offer-token)). Fetching doesn't use the link up. The server answers 404 when the code is unknown or its link has stopped, the same way whichever it is. The rules for Resolve apply: HTTPS on the default port, no redirects, and nothing over 64 KiB.
+
+Any other request, even one with `Accept: */*`, gets the "Got a hashi?" page ([Section 7.2](#72-carrying-offers)), but here the page **MUST NOT** include the offer or say who it's from, because link previewers and scanners fetch it too. Its "Open in app" button passes the link to the app as `hashi://my.domain/h/K7q2mX9pTzR4wB1c`. HASHI apps **MUST** recognise both forms of a short link wherever they recognise the long form.
+
+**What it costs.** Unlike an offer in the fragment, a short link's code goes to the server, so it ends up in the domain's access logs and with anything that fetches links to preview or scan them. The server holds the offer anyway, and the owner still confirms whoever redeems it ([Section 8.7](#87-grants)). An owner who wants nothing in the logs can share the long form. WhatsApp and Telegram invite links carry their code in the path the same way, while Signal's group links keep theirs after a `#`.
+
 ---
 
 ## 8. Protocol Operations
 
-All operations are HTTPS requests to the `endpoint` from the relevant hashi document: the recipient's for Redeem and Send, the owner's own for the inbox, Publish and grants.
+All operations are HTTPS requests to the `endpoint` from the relevant hashi document: the recipient's for Redeem and Send, the owner's own for the inbox, Publish, grants and storing offers.
 
 | Operation | Method and path | Who calls it | Purpose |
 |-----------|-----------------|--------------|---------|
 | Resolve | `GET https://{domain}/.well-known/hashi/{local}` | Anyone | Fetch the hashi document. |
-| Redeem | `POST {endpoint}/redeem` | Another owner's agent | Exchange an offer for a grant. |
+| Server document | `GET https://{domain}/.well-known/hashi` | Anyone | Find a domain's endpoint, server key and sign-up page ([Section 4.7](#47-the-server-document)). |
+| Short link | `GET https://{domain}/h/{code}` | Anyone | Fetch the offer behind a short link ([Section 7.3](#73-short-links)). |
+| Redeem | `POST {endpoint}/redeem` | Another owner's agent | Accept an offer. Raising a level waits for the owner to confirm. |
 | Send | `POST {endpoint}/messages` | Another owner's agent | Deliver a sealed message to the owner's inbox. |
 | List | `GET {endpoint}/inbox` | The owner's agents and devices | See what's waiting. |
 | Claim | `POST {endpoint}/inbox/{id}/claim` | The owner's agents | Move a message from incoming to processing. |
@@ -491,12 +573,15 @@ All operations are HTTPS requests to the `endpoint` from the relevant hashi docu
 | Delete | `DELETE {endpoint}/inbox/{id}` | The claiming agent, or a device | Remove a message. |
 | Wake | `GET` and `PUT {endpoint}/inbox/wake` | The owner's agents | See and register wake-up channels ([Section 8.5](#85-waking-agents)). |
 | Publish | `PUT {endpoint}/document` | The owner's app | Store a new version of the owner's hashi document ([Section 8.6](#86-publish)). |
-| List grants | `GET {endpoint}/grants` | The owner's agents and devices | See who the owner has granted a level to, or refused ([Section 8.7](#87-grants)). |
-| Lower grant | `PUT {endpoint}/grants/{hid}` | The owner's devices | Lower or remove a grant, or refuse a HID ([Section 8.7](#87-grants)). |
+| List grants | `GET {endpoint}/grants` | The owner's agents and devices | See who the owner has granted a level to or refused, and any acceptances waiting for the owner ([Section 8.7](#87-grants)). |
+| Change grant | `PUT {endpoint}/grants/{hid}` | The owner's devices | Confirm, lower or remove a grant, or refuse a HID ([Section 8.7](#87-grants)). |
+| Store offer | `POST {endpoint}/offers` | The owner's devices | Hold an offer behind a short link ([Section 7.3](#73-short-links)). |
 
 ### 8.1 Request Signing
 
-Every request except Resolve and Publish **MUST** be signed with HTTP Message Signatures (RFC 9421), covering at least `@method`, `@target-uri`, `created` and, where there is a body, `content-digest` (RFC 9530). Sends **MUST** also cover `hashi-grant`, `hashi-reply` and `hashi-delegation` when present.
+Every request except Resolve, the server document, short links and Publish **MUST** be signed with HTTP Message Signatures (RFC 9421), covering at least `@method`, `@authority`, `@path`, `created`, each query parameter by name with `@query-param` (RFC 9421, Section 2.2.8) and, where there is a body, `content-digest` (RFC 9530). Sends **MUST** also cover `hashi-grant`, `hashi-reply` and `hashi-delegation` when present.
+
+The query is signed one parameter at a time, not through `@target-uri`, because proxies can reorder or re-encode it. That way the order a client sends parameters in never matters. A server **MUST** reject a request that repeats a query parameter name or carries one the signature doesn't cover. Query parameter names and values **MUST** use only ASCII letters, digits, `-`, `.` and `_`.
 
 | Caller | Signs with | Sends |
 |--------|-----------|-------|
@@ -532,9 +617,16 @@ The server **MUST**:
 3. Verify the offer ([Section 7.1](#71-the-offer-token)) and its expiry.
 4. If the owner has refused the redeemer's HID ([Section 8.7](#87-grants)), answer as for an expired offer (410) without marking the nonce as used.
 5. For one-time offers, atomically mark the nonce as used.
-6. Record a grant against the redeemer's HID, keeping any higher level they already hold ([Section 6.2](#62-rules)).
+6. If the redeemer already holds the offered level or more, leave the level as it is and answer 200.
+7. Otherwise hold the acceptance as pending until the owner answers it ([Section 8.7](#87-grants)), and answer 202. A HID has at most one pending acceptance, and a later one replaces it only if its level is higher.
 
-**Response:**
+**Response:** while the acceptance waits for the owner, the server answers 202:
+
+```json
+{ "pending": true }
+```
+
+The redeemer's level doesn't change until the owner confirms. A redeemer that gets 202 **SHOULD** stop presenting any grant token it already holds from that server, because an old token would hold the confirmed level down ([Section 6.3](#63-effective-level)). If the redeemer already held the offered level or more, the server answers 200:
 
 ```json
 {
@@ -543,7 +635,7 @@ The server **MUST**:
 }
 ```
 
-`level` is the level now recorded for the redeemer, which is higher than the offer's if they already held more. The grant token is a JWS signed by the server key and carries that level as `lvl`. It is evidence only; the server's record is authoritative.
+`level` is the level the redeemer holds, which is higher than the offer's if they already held more. The grant token is a JWS signed by the server key and carries that level as `lvl`. It is evidence only; the server's record is authoritative.
 
 ```json
 {
@@ -661,7 +753,7 @@ The server doesn't route. Every one of the owner's agents sees the same inbox, a
 
 ### 8.5 Waking Agents
 
-An agent that is online subscribes to its inbox; whenever something is added, the server tells it so. That notice says only that the inbox changed. It **MUST NOT** carry any part of a message, its stamp or its sender, so the notice needs no security of its own and is never trusted. On getting one, the agent lists its inbox over the signed API.
+An agent that is online subscribes to its inbox. Whenever something is added, or an acceptance starts waiting for the owner ([Section 8.7](#87-grants)), the server tells it so. That notice says only that something changed. It **MUST NOT** carry any part of a message, its stamp or its sender, so the notice needs no security of its own and is never trusted. On getting one, the agent lists its inbox over the signed API, and the owner's app lists grants too.
 
 How the notice travels is not fixed by this specification:
 
@@ -693,13 +785,30 @@ Because the held document can only be extended, a replayed or older document is 
 
 The server then adds `fresh` ([Section 4.5](#45-freshness)) and serves the new document from Resolve straight away.
 
-**First publish and reset.** When the server holds no document for the hashi, whether it accepts the first one is the server's own registration policy, like an email provider's sign-up rules. A reset ([Section 5.5](#55-lost-or-stolen)) is not done by Publish: rule 4 refuses a new HID while a document is held, so a server that allows resets first drops the held document under its own policy, and the new document is then a first publish. This specification doesn't define either.
+**Signing up.** A new hashi starts on the server's own sign-up page and goes live with the app's first publish:
+
+1. The app makes the identity key on the device and works out the HID. It finds the `signup` page in the server document ([Section 4.7](#47-the-server-document)) and opens it in the device's default browser app, not a web view or an in-app browser tab, so that a link the server emails during sign-up comes back to the same browser. The link carries the hashi the person wants and the HID in its fragment, as `hashi` and `hid`, so they stay out of server logs: `https://my.domain/signup#hashi=sarah%23my.domain&hid=hid:Zr8L...`.
+2. The page shows the hashi being claimed and runs whatever checks the server wants, such as an email code, an invite, a payment or signing in with another account. It **MUST** give the same answer for every name that isn't free, whatever the reason, so it reveals only whether a name is free.
+3. The server claims the name only when the person presses a button on the page to confirm it, never just because the page was opened, even if they're already signed in. It then reserves the name for that HID for a short time, and the page tells the person to go back to the app. There's no return address, and nothing secret comes back through the browser.
+4. The app publishes. A server with a sign-up page **MUST** accept a first publish only from the HID the name is reserved for, and answers 403 the same way whether the name is reserved for someone else or not reserved at all. If the app never publishes, the reservation lapses.
+
+Because the check is tied to the name and the HID, passing it is no use to anyone with a different key, and the first publish proves the app holds the key. Apart from starting a reset or deletion as described below, the sign-up account authorises nothing: publishing, the inbox, grants and delegations need the owner's keys as always. The server **SHOULD** tell the sign-up account when a name is registered to it, so someone tricked into approving a stranger's claim finds out.
+
+A server's endpoint is public, so outside testing it **SHOULD NOT** let just anyone claim a name, with or without a page, or `ceo#acme.com` would go to whoever asked first. A server without a `signup` page, such as a company's, decides some other way who may publish first, for example by having its operator reserve each name for the HID the person's app shows.
+
+**Reset or deletion without the identity key.** A reset ([Section 5.5](#55-lost-or-stolen)) isn't done by Publish, because rule 4 refuses a new HID while a document is held. A server **MAY** let the sign-up account reset or delete the hashi without the identity key, for example after the key is lost or when the owner deletes their account on the `account` page. A reset starts like a sign-up: the app makes a new identity key and opens the sign-up page with the same name and the new HID. Whichever it is, and however it's asked for:
+
+- the server **MUST** show the pending change as `reset` inside `fresh` ([Section 4.5](#45-freshness)), so every app that resolves the hashi sees it;
+- the server **MUST** wait at least 7 days before going ahead; and
+- any publish the server accepts under rule 4 cancels it, so whoever holds the identity key always wins.
+
+When the wait is over, the server drops the held document. For a reset, it then reserves the name for the new HID, and the app publishes as in step 4. How the server checks that it's the same account, and how much longer than 7 days it waits, is the server's policy. The owner's apps **SHOULD** warn the owner as soon as they see a pending `reset`.
 
 | Status | When |
 |--------|------|
 | 200 | Stored. The body is the document as now served, `fresh` included. |
 | 400 | The document is malformed or doesn't verify. |
-| 403 | First publish not allowed by this server's policy, or the document isn't for this server (its `hashi`, `endpoint` or binding `srv`). |
+| 403 | A first publish this server doesn't allow, because the name is reserved for another HID or its policy refuses it, or a document that isn't for this server (its `hashi`, `endpoint` or binding `srv`). |
 | 409 | The epoch isn't higher than the held one, the rotation chain doesn't extend the held one, or the HID differs. |
 
 ### 8.7 Grants
@@ -714,7 +823,8 @@ The owner manages the grants it has given with two calls, signed like the inbox 
     {
       "hid": "hid:Zr8L...",
       "hashi": "sarah#example.org",
-      "level": 4,
+      "level": 0,
+      "pending": { "level": 4, "nonce": "b9Xk2..." },
       "refused": false,
       "updated": 1791270000
     }
@@ -722,24 +832,27 @@ The owner manages the grants it has given with two calls, signed like the inbox 
 }
 ```
 
-`hashi` is the hashi the grantee gave when redeeming or sending, if known. `updated` is when the entry last changed or an offer was last redeemed for it. Refused HIDs are listed with level 0 and `refused: true`. The 64 KiB response limit ([Section 11](#11-network-security)) doesn't apply to this list, which comes from the owner's own server. The owner's app finds out about a new redemption by listing.
+`hashi` is the hashi the grantee gave when redeeming or sending, if known. `updated` is when the entry last changed or an offer was last redeemed for it. Refused HIDs are listed with level 0 and `refused: true`. The 64 KiB response limit ([Section 11](#11-network-security)) doesn't apply to this list, which comes from the owner's own server. `pending` is there while someone has redeemed an offer and the owner hasn't answered yet. It gives the offer's level and nonce, so the owner's app can tell which offer it was, and the entry always carries the `hashi` the redeemer gave. Someone with only a pending acceptance is listed with level 0. The server **SHOULD** drop a pending acceptance the owner hasn't answered within 30 days.
 
-**Lower, remove or refuse.** `PUT {endpoint}/grants/{hid}` **MUST** be signed by a **device** delegation, because changing trust is the owner's own decision:
+**Confirm, lower, remove or refuse.** `PUT {endpoint}/grants/{hid}` **MUST** be signed by a **device** delegation, because changing trust is the owner's own decision:
 
 ```json
 { "level": 0, "refuse": true }
 ```
 
-- `level` **MUST NOT** be higher than the recorded one, taking 0 if there is none ([Section 6.2](#62-rules), rule 5). Setting 0 removes the grant.
+- `level` **MUST NOT** be higher than the recorded one, or the pending one if that is higher, taking 0 if there is neither ([Section 6.2](#62-rules), rule 5). A device can't confirm a level above its own `max_lvl`. Setting 0 removes the grant.
+- A request for a HID with a pending acceptance answers it: the server records `level` and drops the pending acceptance. Sending the pending level confirms it, a level between that and the current one confirms less, and the current level or lower declines it. Redeeming a multi-use offer again after a decline asks the owner again; refusing the HID stops that.
 - `refuse` is optional. `true` refuses that HID from then on and sets its level to 0: its messages, replies included, get `nah` ([Section 6.4](#64-zero-is-zero)), and its redemptions are answered as if the offer had expired. `false` lifts a refusal without granting anything. Leaving it out keeps the current setting.
 - Changes apply to the very next request ([Section 6.3](#63-effective-level)).
+
+The owner's app **SHOULD** show who accepted and which offer it was, and ask the owner before confirming.
 
 | Status | When |
 |--------|------|
 | 200 | Done. The body is the entry as now recorded. |
 | 401 | Missing or invalid signature or delegation. |
-| 403 | Not the owner's delegation, or an agent delegation tried to change a grant. |
-| 409 | `level` is higher than the recorded one. |
+| 403 | Not the owner's delegation, an agent delegation tried to change a grant, or a device tried to confirm a level above its `max_lvl`. |
+| 409 | `level` is higher than both the recorded and the pending level. |
 
 Servers **MUST** reject a grants request whose signature `created` is more than 5 minutes old, and **MUST NOT** accept two requests with the same signature base (RFC 9421) within that window.
 
@@ -749,11 +862,11 @@ Problems that aren't decisions return an `error` body, not a `result`:
 
 | HTTP status | When |
 |-------------|------|
-| 400 | Malformed request, a level-0 message with an envelope, or a request over 64 KiB. |
+| 400 | Malformed request, a level-0 message with an envelope, an offer to store that doesn't verify or has expired, or a request over 64 KiB. |
 | 401 | Missing or invalid signature, delegation or key. |
-| 403 | Inbox and grants: the caller isn't one of the owner's agents or devices, or isn't allowed that action. Publish: not allowed by this server's policy, or the document isn't for this server. |
-| 404 | Resolve, Redeem and Send: no such hashi on this server. Inbox: no such message. |
-| 409 | Claim: already claimed. Publish: the document doesn't extend the held one. Grants: the level would rise. |
+| 403 | Inbox, grants and storing offers: the caller isn't one of the owner's agents or devices, or isn't allowed that action. Publish: not allowed by this server's policy, or the document isn't for this server. |
+| 404 | Resolve, Redeem and Send: no such hashi on this server. Inbox: no such message. Short link: unknown code, or the link has stopped. Storing an offer: no short links on the hashi's domain. |
+| 409 | Claim: already claimed. Publish: the document doesn't extend the held one. Grants: the level is higher than the recorded and pending levels. |
 | 410 | Redeem only: offer already used or expired. |
 | 429 | Rate limited. Includes `Retry-After`. |
 
@@ -883,7 +996,9 @@ Agents that can reach each other directly **MAY** agree, inside their messages, 
      |-- QR: offer, lvl 4 ------------------->|                    |
      |                    |<-- 1. resolve ------|                    |
      |                    |<-- 2. redeem -------|                    |
-     |                    |--- grant, lvl 4 --->|                    |
+     |                    |--- pending -------->|                    |
+     |<-- wake, list -----|                     |                    |
+     |-- confirm, lvl 4 ->|                     |                    |
                ... that evening ...
      |                    |<-- 3. send ---------|                    |
      |                    |  stamp lvl 4, queue |                    |
@@ -894,7 +1009,7 @@ Agents that can reach each other directly **MAY** agree, inside their messages, 
 ```
 
 1. John's phone shows a QR code for `https://my.domain/.well-known/hashi/john` with a level-4 offer in the fragment: one-time, 48-hour expiry, display name "John Doe", note "coffee".
-2. Sarah scans it with her HASHI app, or with her camera and taps "Open in app" on John's page. The app shows *John Doe · john#my.domain*, resolves the hashi, checks the chain from John's HID to the device that signed the offer, and on her confirmation redeems it as `sarah#example.org`, signed with its agent delegation. John's server records level 4 for Sarah's HID, and John's phone shows who redeemed it.
+2. Sarah scans it with her HASHI app, or with her camera and taps "Open in app" on John's page. The app shows *John Doe · john#my.domain*, resolves the hashi, checks the chain from John's HID to the device that signed the offer, and on her confirmation redeems it as `sarah#example.org`, signed with its agent delegation. John's server holds her acceptance and wakes John's phone, which shows that `sarah#example.org` accepted the coffee offer. John taps Confirm, and his server records level 4 for Sarah's HID.
 3. That evening her agent sends John a message with `intent: "schedule"` and a new thread, sealed to each agent in John's `agents` list, and offers John a reply token. John's server checks her signature and grant, stamps the message at level 4 and queues it. Her agent gets `yeah` and goes back to sleep.
 4. Later, John's laptop agent comes online, or is woken by a push. It lists the inbox, sees a scheduling message sealed to it, claims it, checks the stamp and Sarah's signature, and opens it.
 5. It replies to Sarah's server on the same thread, sealed only to the agent that wrote to it, presenting Sarah's reply token. John has no grant from Sarah, but the token lets the reply in.
@@ -908,7 +1023,7 @@ A month later Sarah switches agent provider. Her grant is recorded against her H
 
 ### 10.3 No Hashi? Get One
 
-If Sarah has no HASHI app, her camera opens John's page, which asks *"Got a hashi?"*. She doesn't, so the page points her to an app store or a provider. Once she's set up, she taps the link again and continues as in [Section 10.1](#101-coffee-after-meeting-on-the-street), as long as the offer hasn't expired. Nothing is redeemed until she has a hashi.
+If Sarah has no HASHI app, her camera opens John's page, which asks *"Got a hashi?"*. She doesn't, so the page points her to an app store or a provider. Once she has installed an app and signed up ([Section 8.6](#86-publish)), she taps the link again and continues as in [Section 10.1](#101-coffee-after-meeting-on-the-street), as long as the offer hasn't expired. Nothing is redeemed until she has a hashi.
 
 ### 10.4 Lost Phone
 
@@ -942,9 +1057,11 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 | **The server lying about trust** | The owner's server is trusted to certify levels to the owner's own agents, just as it is trusted to keep the owner's grants. It can't forge content or a sender's signature. |
 | **Replay** | One-time nonces are burnt on redemption. Signed requests carry `created`; servers **SHOULD** reject signatures older than 5 minutes and keep a short replay cache, and **MUST** do so for the grants calls ([Section 8.7](#87-grants)). Agents discard repeated message `jti` values. Epoch pinning and freshness stop replay of old hashi documents. |
 | **Spam and inbox flooding** | Only senders with a grant, or with a reply token from one of the owner's agents, can put content in an inbox. Level-0 messages carry no content. Messages are capped at 64 KiB, servers rate-limit per sender, and retention is at most 30 days. |
-| **Leaked or photographed offers** | Fragment carriage, short expiry and one-time use limit exposure. Owners **MUST** be notified when an offer is redeemed, showing who redeemed it, so a stolen redemption gets noticed on the spot and revoked. |
-| **Rogue apps claiming `hashi://`** | QR codes and shared links use the HTTPS form ([Section 7.2](#72-carrying-offers)), and the redeem notification shows the owner who actually redeemed. |
+| **Leaked or photographed offers** | Fragment carriage, short expiry and one-time use limit exposure. A redemption that would raise a level waits until the owner confirms who made it ([Section 8.7](#87-grants)), so a stolen offer gets declined before it grants anything. A one-time offer that a stranger used up is gone either way, so the owner makes a new one. |
+| **Short links in logs and previews** | A short link's code reaches the domain's web server and its logs, and anything that fetches links to preview or scan them ([Section 7.3](#73-short-links)). Those get only a page that names nobody. Whoever reads a code can fetch the offer until it's first redeemed, but the owner still confirms who redeemed it. |
+| **Rogue apps claiming `hashi://`** | QR codes and shared links use the HTTPS form ([Section 7.2](#72-carrying-offers)), and the owner confirms who actually redeemed before anything changes. |
 | **Domain or hosting compromise** | Whoever controls `{domain}` can't forge a binding, rotation or delegation, can't roll back the epoch, and can't keep a pre-revocation document alive past the freshness window. They can't add an encryption key to `agents`, because the binding covers it. First contact relies on trust on first use, unless the sender got a signed offer in person, which pins the HID. |
+| **Takeover through the sign-up account** | Getting into the email or other account someone signed up with doesn't let anyone publish, read their inbox or change their grants, because those need the owner's keys. A reset or deletion started from that account shows in the hashi's `fresh` statement for at least 7 days, and any publish from the owner's key cancels it ([Section 8.6](#86-publish)). |
 | **Minting offers for someone else's hashi** | Offers must chain to the HID of the hashi they name ([Section 7.1](#71-the-offer-token)). |
 | **Impersonation by display name** | Display names are claims, not identity. Clients show the hashi until a relationship exists, and prefer the user's own contact names after. |
 | **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list, `max_lvl` and role checks. A rotation invalidates all earlier delegations. A stolen agent's encryption key opens messages already sealed to it, so revoking it and removing it from `agents` quickly matters. |
@@ -956,7 +1073,7 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 
 ## 13. Privacy and Safety
 
-- **The hashi document is public.** It reveals that a hashi exists, how many agents receive messages and, if published, a display name. Servers **SHOULD** rate-limit resolution to make enumeration expensive. Owners **MAY** omit `display_name`.
+- **The hashi document is public.** It reveals that a hashi exists, how many agents receive messages and, if published, a display name. Servers **SHOULD** rate-limit resolution and sign-up to make enumeration expensive. Owners **MAY** omit `display_name`.
 - **Sealed, not read.** The HASHI server sees who sends to whom, when, the intent, the thread and the size. It never sees message content. Servers **SHOULD** keep that metadata no longer than the messages themselves.
 - **Wake-ups say nothing.** A wake-up notice carries no part of a message, so push services learn only that something changed.
 - **A `nah` is just a `nah`.** It carries no reason, and a per-HID refusal looks the same as any other ([Section 6.4](#64-zero-is-zero)).
@@ -989,6 +1106,7 @@ This specification requests:
 | **DIDs** | Cryptographic identifiers. | Not a human contact mechanism. An HID could later be expressed as a DID. |
 | **A2A** | How agents talk and act when both can reach each other. | Agents **MAY** move to A2A after contact, authenticating with their HASHI keys ([Section 9.5](#95-moving-to-another-protocol)). HASHI works when one of them can't be reached. |
 | **MCP** | Tool and data connectivity, with OAuth-based authorisation. | Not a trust bootstrap from a human address. |
+| **Matrix and Bluesky sign-up**, **ACME** | Matrix and Bluesky sign people up on the server's own web page, with whatever checks that server wants. ACME, the protocol behind Let's Encrypt, approves a key made on the client through an outside check tied to that key. | Prior art for HASHI's sign-up: a check on the server's page, tied to the name and the HID, then a first publish signed by the new key ([Section 8.6](#86-publish)). |
 | **Signal, AT Protocol, Matrix** | Keep a person's root key apart from working keys. | Prior art for HASHI's key roles. |
 
 **HASHI:** how I give you an address for me, how much I trust you, and how our agents reach each other even when they're offline.
@@ -1005,7 +1123,7 @@ This specification requests:
 8. **Recovery short of a reset** when an identity key is lost.
 9. **Organisation-level policy** documents.
 10. **Expressing an HID as a DID.**
-11. **Short codes:** an 8-character code, read aloud, that points to an offer the server stores, for when a link or QR code won't do. It needs a call for the app to store an offer and get a code back.
+11. **Read-aloud codes:** a code short enough to read out, for when even a short link won't do, such as over the phone. A short link's code ([Section 7.3](#73-short-links)) is too long for that, and a shorter one could be guessed unless the server limits tries much more tightly.
 
 ## Appendix C: References
 
