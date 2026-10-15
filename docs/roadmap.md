@@ -14,7 +14,7 @@ HASHI is at version 0.1, a draft. These are the open questions, also listed in A
 8. **Recovery short of a reset** when an identity key is lost.
 9. **Organisation-level policy** documents.
 10. **Expressing an HID as a DID.**
-11. **Short codes.** An 8-character code, read aloud, that points to an offer the server stores, for when a link or QR code won't do. It needs a call for the app to store an offer and get a code back.
+11. **Read-aloud codes.** A code short enough to read out, for when even a short link won't do, such as over the phone. A short link's code is too long for that, and a shorter one could be guessed unless the server limits tries much more tightly.
 
 ## Next Steps
 
