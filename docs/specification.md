@@ -157,6 +157,45 @@ john#my.domain    ← the address
 hid:Q3pT0gq...    ← the cryptographic identity
 ```
 
+### 3.5 Pictures
+
+An owner **MAY** publish a picture, such as a photo or a company logo, in the hashi document, so that people who already know them can recognise them. It's a link to the image and the image's hash:
+
+```json
+"picture": {
+  "url": "https://pictures.my.domain/q4X2...webp",
+  "sha256": "<base64url SHA-256 of the image file>"
+}
+```
+
+- Like a display name ([Section 3.4](#34-display-names)), a picture **MUST NOT** be used for authentication, trust decisions or equality. A company's logo is exactly what an impersonator would copy, and only the hashi's domain shows which organisation it belongs to.
+- The image **MUST** be a square JPEG, PNG or WebP, no more than 256 pixels on a side and no more than 48 KiB. SVG isn't allowed, because it can carry script. Apps **SHOULD** re-encode an image and drop its metadata, such as where a photo was taken, before publishing it.
+- `sha256` is the SHA-256 hash of the image file's bytes, in base64url without padding. The binding covers it ([Section 4.3](#43-the-binding)), so only the owner can change the picture. Whoever hosts the image can stop serving it, but can't swap it. Clients **MUST NOT** show an image that doesn't match the hash or breaks the rules above, and **SHOULD** check its size and dimensions before decoding it. They **MAY** keep it, keyed by its hash, for as long as they like.
+- The image can be on any host, subject to [Section 11](#11-network-security). Loading it tells that host that someone is looking, and when, as a tracking pixel does in an email. So clients **MUST NOT** load or show anyone else's picture until the user has saved them as a contact or granted them a level above 0.
+- Owners **MAY** leave it out. Like the display name, it's public.
+
+**Storing a picture.** The owner's server **MAY** host pictures for its hashis. The app sends the image file in a request signed by a `device` delegation of one of those hashis:
+
+```http
+POST /v1/pictures HTTP/1.1
+Host: hashi.my.domain
+Content-Type: image/webp
+Content-Digest: sha-256=:...:
+Signature-Input: ...
+Signature: ...
+Hashi-Delegation: eyJ...
+
+<the image file>
+```
+
+The server works out the file's format from its first bytes, checks its size and dimensions, and answers 400 if it breaks the rules above. It stores the image where clients can load it under [Section 11](#11-network-security), served with that format's content type, and answers 200 with the value for `picture`:
+
+```json
+{ "url": "https://pictures.my.domain/q4X2...webp", "sha256": "q4X2..." }
+```
+
+Storing a picture doesn't change the document. The app checks that `sha256` is the hash of the file it sent, then publishes a document that names it ([Section 8.6](#86-publish)). The server decides how long to keep a picture that the published document doesn't name. A server that doesn't host pictures answers 404.
+
 ---
 
 ## 4. Resolution and the Hashi Document
@@ -183,6 +222,7 @@ Accept: application/hashi+json
   "version": "0.1",
   "hashi": "john#my.domain",
   "display_name": "John Doe",
+  "picture": { "url": "https://pictures.my.domain/q4X2...webp", "sha256": "q4X2..." },
   "hid": "hid:Q3pT0gq1mRk2b0nN7y3A5xYv9L6cF8hJ2sW4eD1uK0o",
   "epoch": 3,
   "identity_key": { "kty": "OKP", "crv": "Ed25519", "x": "..." },
@@ -201,6 +241,7 @@ Accept: application/hashi+json
 | `version` | string | Yes | Protocol version. |
 | `hashi` | string | Yes | Canonical hashi. |
 | `display_name` | string | No | Presentation only ([Section 3.4](#34-display-names)). |
+| `picture` | object | No | `{ "url", "sha256" }`. A picture of the owner, for presentation only ([Section 3.5](#35-pictures)). |
 | `hid` | string | Yes | `hid:` plus the base64url JWK thumbprint (RFC 7638) of the owner's genesis identity key. |
 | `epoch` | integer | Yes | Incremented on every signed change, including every revocation and rotation. |
 | `identity_key` | JWK | Yes | The owner's current identity public key. |
@@ -373,7 +414,7 @@ A verifier **MUST** reject a delegation that:
 - is not signed by the current identity key; or
 - has an `epoch` lower than that of the most recent rotation. (A rotation therefore kills every earlier delegation, including any minted with a stolen key.)
 
-Verifiers **MUST** also check `role`: offers **MUST** be signed by a `device` delegation; redeems, messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages, and listing grants, **MAY** be signed by either role ([Section 8.4](#84-the-inbox), [Section 8.7](#87-grants)). Storing an offer ([Section 7.3](#73-short-links)), confirming or lowering a grant, or refusing a HID, **MUST** be signed by a `device` delegation.
+Verifiers **MUST** also check `role`: offers **MUST** be signed by a `device` delegation; redeems, messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages, and listing grants, **MAY** be signed by either role ([Section 8.4](#84-the-inbox), [Section 8.7](#87-grants)). Storing an offer ([Section 7.3](#73-short-links)) or a picture ([Section 3.5](#35-pictures)), confirming or lowering a grant, or refusing a HID, **MUST** be signed by a `device` delegation.
 
 ### 5.4 Key Rotation
 
@@ -558,7 +599,7 @@ Any other request, even one with `Accept: */*`, gets the "Got a hashi?" page ([S
 
 ## 8. Protocol Operations
 
-All operations are HTTPS requests to the `endpoint` from the relevant hashi document: the recipient's for Redeem and Send, the owner's own for the inbox, Publish, grants and storing offers.
+All operations are HTTPS requests to the `endpoint` from the relevant hashi document: the recipient's for Redeem and Send, the owner's own for the inbox, Publish, grants, storing offers and storing pictures.
 
 | Operation | Method and path | Who calls it | Purpose |
 |-----------|-----------------|--------------|---------|
@@ -576,6 +617,7 @@ All operations are HTTPS requests to the `endpoint` from the relevant hashi docu
 | List grants | `GET {endpoint}/grants` | The owner's agents and devices | See who the owner has granted a level to or refused, and any acceptances waiting for the owner ([Section 8.7](#87-grants)). |
 | Change grant | `PUT {endpoint}/grants/{hid}` | The owner's devices | Confirm, lower or remove a grant, or refuse a HID ([Section 8.7](#87-grants)). |
 | Store offer | `POST {endpoint}/offers` | The owner's devices | Hold an offer behind a short link ([Section 7.3](#73-short-links)). |
+| Store picture | `POST {endpoint}/pictures` | The owner's devices | Host a picture for the hashi document ([Section 3.5](#35-pictures)). |
 
 ### 8.1 Request Signing
 
@@ -764,7 +806,7 @@ For `webpush`, `params` is the agent's push subscription, and the push message *
 
 ### 8.6 Publish
 
-The owner's app changes its hashi document (display name, `level0`, `agents`, revocations or a rotation) by publishing the whole new document to its own server:
+The owner's app changes its hashi document (display name, picture, `level0`, `agents`, revocations or a rotation) by publishing the whole new document to its own server:
 
 ```http
 PUT /v1/document HTTP/1.1
@@ -862,10 +904,10 @@ Problems that aren't decisions return an `error` body, not a `result`:
 
 | HTTP status | When |
 |-------------|------|
-| 400 | Malformed request, a level-0 message with an envelope, an offer to store that doesn't verify or has expired, or a request over 64 KiB. |
+| 400 | Malformed request, a level-0 message with an envelope, an offer to store that doesn't verify or has expired, a picture to store that breaks the rules in [Section 3.5](#35-pictures), or a request over 64 KiB. |
 | 401 | Missing or invalid signature, delegation or key. |
-| 403 | Inbox, grants and storing offers: the caller isn't one of the owner's agents or devices, or isn't allowed that action. Publish: not allowed by this server's policy, or the document isn't for this server. |
-| 404 | Resolve, Redeem and Send: no such hashi on this server. Inbox: no such message. Short link: unknown code, or the link has stopped. Storing an offer: no short links on the hashi's domain. |
+| 403 | Inbox, grants, storing offers and storing pictures: the caller isn't one of the owner's agents or devices, or isn't allowed that action. Publish: not allowed by this server's policy, or the document isn't for this server. |
+| 404 | Resolve, Redeem and Send: no such hashi on this server. Inbox: no such message. Short link: unknown code, or the link has stopped. Storing an offer: no short links on the hashi's domain. Storing a picture: this server doesn't host pictures. |
 | 409 | Claim: already claimed. Publish: the document doesn't extend the held one. Grants: the level is higher than the recorded and pending levels. |
 | 410 | Redeem only: offer already used or expired. |
 | 429 | Rate limited. Includes `Retry-After`. |
@@ -1037,7 +1079,7 @@ John decides he no longer wants to hear from someone. He drops them to 0. He doe
 
 ## 11. Network Security
 
-These rules apply to every URL a HASHI implementation fetches or hands out: hashi documents, `endpoint` and wake-up channel URLs such as push subscriptions.
+These rules apply to every URL a HASHI implementation fetches or hands out: hashi documents, `endpoint`, pictures and wake-up channel URLs such as push subscriptions.
 
 - URLs **MUST** use HTTPS.
 - Implementations **MUST NOT** follow redirects on any HASHI request.
@@ -1063,9 +1105,9 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 | **Domain or hosting compromise** | Whoever controls `{domain}` can't forge a binding, rotation or delegation, can't roll back the epoch, and can't keep a pre-revocation document alive past the freshness window. They can't add an encryption key to `agents`, because the binding covers it. First contact relies on trust on first use, unless the sender got a signed offer in person, which pins the HID. |
 | **Takeover through the sign-up account** | Getting into the email or other account someone signed up with doesn't let anyone publish, read their inbox or change their grants, because those need the owner's keys. A reset or deletion started from that account shows in the hashi's `fresh` statement for at least 7 days, and any publish from the owner's key cancels it ([Section 8.6](#86-publish)). |
 | **Minting offers for someone else's hashi** | Offers must chain to the HID of the hashi they name ([Section 7.1](#71-the-offer-token)). |
-| **Impersonation by display name** | Display names are claims, not identity. Clients show the hashi until a relationship exists, and prefer the user's own contact names after. |
+| **Impersonation by display name or picture** | Display names and pictures are claims, not identity, and a company's logo is the first thing an impersonator would copy. Only the hashi's domain shows which organisation it belongs to. Clients show the hashi until a relationship exists, load pictures only after one, and prefer the user's own contact names. |
 | **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list, `max_lvl` and role checks. A rotation invalidates all earlier delegations. A stolen agent's encryption key opens messages already sealed to it, so revoking it and removing it from `agents` quickly matters. |
-| **Prompt injection** | Message bodies are untrusted input at every level and **MUST NOT** be given to a language model as instructions. Outside the envelope, the only free text is the display name and the offer note, both untrusted display metadata. Intents are constrained tokens. High trust says *who* sent a message, not that what it says is safe to act on. |
+| **Prompt injection** | Message bodies are untrusted input at every level and **MUST NOT** be given to a language model as instructions. Outside the envelope, the only free text is the display name and the offer note, both untrusted display metadata. Pictures are untrusted in the same way, since an image can carry text aimed at a model. Intents are constrained tokens. High trust says *who* sent a message, not that what it says is safe to act on. |
 | **Server-side request forgery** | See [Section 11](#11-network-security). |
 | **Clock skew** | Verifiers **SHOULD** allow up to 60 seconds on `iat`, `exp` and `created`. |
 
@@ -1073,7 +1115,8 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 
 ## 13. Privacy and Safety
 
-- **The hashi document is public.** It reveals that a hashi exists, how many agents receive messages and, if published, a display name. Servers **SHOULD** rate-limit resolution and sign-up to make enumeration expensive. Owners **MAY** omit `display_name`.
+- **The hashi document is public.** It reveals that a hashi exists, how many agents receive messages and, if published, a display name and picture. Servers **SHOULD** rate-limit resolution and sign-up to make enumeration expensive. Owners **MAY** omit `display_name` and `picture`.
+- **Pictures can track.** Loading someone's picture tells whoever hosts it that someone is looking, and when, so clients load pictures only for people the user already knows ([Section 3.5](#35-pictures)).
 - **Sealed, not read.** The HASHI server sees who sends to whom, when, the intent, the thread and the size. It never sees message content. Servers **SHOULD** keep that metadata no longer than the messages themselves.
 - **Wake-ups say nothing.** A wake-up notice carries no part of a message, so push services learn only that something changed.
 - **A `nah` is just a `nah`.** It carries no reason, and a per-HID refusal looks the same as any other ([Section 6.4](#64-zero-is-zero)).
@@ -1106,6 +1149,7 @@ This specification requests:
 | **DIDs** | Cryptographic identifiers. | Not a human contact mechanism. An HID could later be expressed as a DID. |
 | **A2A** | How agents talk and act when both can reach each other. | Agents **MAY** move to A2A after contact, authenticating with their HASHI keys ([Section 9.5](#95-moving-to-another-protocol)). HASHI works when one of them can't be reached. |
 | **MCP** | Tool and data connectivity, with OAuth-based authorisation. | Not a trust bootstrap from a human address. |
+| **Bluesky avatars**, **Subresource Integrity**, **BIMI** | A Bluesky profile names its avatar by the image's hash. Subresource Integrity lets a web page give the hash of a script it loads, so the browser won't run a copy that whoever hosts it has changed. BIMI shows a brand's logo in email once the sender's domain enforces DMARC, and Gmail and Apple Mail also want a certificate showing the logo is the sender's, usually backed by a registered trademark. | Prior art for HASHI's picture: a link and the image's hash, signed by the owner ([Section 3.5](#35-pictures)). HASHI makes no brand check, so a picture is only ever decoration. The name follows the `picture` claim in OpenID Connect. |
 | **Matrix and Bluesky sign-up**, **ACME** | Matrix and Bluesky sign people up on the server's own web page, with whatever checks that server wants. ACME, the protocol behind Let's Encrypt, approves a key made on the client through an outside check tied to that key. | Prior art for HASHI's sign-up: a check on the server's page, tied to the name and the HID, then a first publish signed by the new key ([Section 8.6](#86-publish)). |
 | **Signal, AT Protocol, Matrix** | Keep a person's root key apart from working keys. | Prior art for HASHI's key roles. |
 
@@ -1144,6 +1188,8 @@ This specification requests:
 | RFC 9421 | HTTP message signatures |
 | RFC 9530 | Digest fields |
 | Unicode UAX #15 | Normalisation forms |
+| [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html) | Standard claims, including `picture` |
+| [Subresource Integrity](https://www.w3.org/TR/SRI/) | Checking a fetched file against its hash |
 | [A2A](https://a2a-protocol.org) | Agent2Agent protocol |
 | [MCP](https://modelcontextprotocol.io/specification) | Model Context Protocol |
 | [DID Core](https://www.w3.org/TR/did-core/) | Decentralised identifiers |

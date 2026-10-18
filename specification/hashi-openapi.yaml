@@ -607,6 +607,62 @@ paths:
         '429':
           $ref: '#/components/responses/RateLimited'
 
+  /pictures:
+    post:
+      operationId: storePicture
+      summary: Host a picture for the owner's hashi document. One of the owner's devices only.
+      description: |
+        The request MUST be signed by a device delegation of a hashi this
+        server holds, with content-digest covering the image. The server
+        checks, reading the format from the file's first bytes, that it is a
+        square JPEG, PNG or WebP (never SVG) of at most 256 pixels a side and
+        48 KiB. It stores the image, served with the content type of the
+        format it found, where clients can load it, and returns the value
+        for the document's picture. The app checks that sha256 is the hash
+        of the file it sent. The picture people see changes only when the
+        app publishes a document naming it. Hosting pictures is optional: a
+        server that doesn't host them answers 404.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/ContentDigest'
+        - $ref: '#/components/parameters/HashiDelegation'
+      requestBody:
+        required: true
+        content:
+          image/jpeg: {}
+          image/png: {}
+          image/webp: {}
+      responses:
+        '200':
+          description: Stored. The value for the document's picture.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Picture'
+        '400':
+          description: Not a JPEG, PNG or WebP image, not square, more than 256 pixels a side, or over 48 KiB.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Not signed by a device delegation of a hashi this server holds.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: This server doesn't host pictures.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
 components:
   parameters:
     SignatureInput:
@@ -708,6 +764,23 @@ components:
         Presentation only. NFC-normalised, no Cc/Cf characters. MUST NOT be
         used as an identity or trust signal.
 
+    Picture:
+      type: object
+      required: [url, sha256]
+      description: |
+        Presentation only, never an identity or trust signal. A square JPEG,
+        PNG or WebP of at most 256 pixels a side and 48 KiB. Clients MUST NOT
+        show an image that doesn't match sha256 or breaks those rules, and
+        MUST NOT load or show anyone else's picture until the user has saved
+        them as a contact or granted them a level above 0.
+      properties:
+        url:
+          $ref: '#/components/schemas/HttpsUrl'
+        sha256:
+          type: string
+          description: SHA-256 of the image file's bytes, in base64url without padding.
+          pattern: '^[A-Za-z0-9_-]{43}$'
+
     JWS:
       type: string
       description: Compact JWS.
@@ -805,6 +878,8 @@ components:
           $ref: '#/components/schemas/HashiDocument/properties/hashi'
         display_name:
           $ref: '#/components/schemas/HashiDocument/properties/display_name'
+        picture:
+          $ref: '#/components/schemas/HashiDocument/properties/picture'
         hid:
           $ref: '#/components/schemas/HashiDocument/properties/hid'
         epoch:
@@ -835,6 +910,8 @@ components:
           $ref: '#/components/schemas/Hashi'
         display_name:
           $ref: '#/components/schemas/DisplayName'
+        picture:
+          $ref: '#/components/schemas/Picture'
         hid:
           $ref: '#/components/schemas/HID'
         epoch:
