@@ -16,15 +16,18 @@ info:
     Message Signatures (RFC 9421) made with the caller's agent or device
     key, covering @method, @authority, @path, created, each query
     parameter by name (@query-param) and (with a body) content-digest;
-    sends also cover hashi-grant, hashi-reply and hashi-delegation when
-    present. Servers MUST reject a request that repeats a query parameter
+    sends also cover hashi-reply and hashi-delegation when present.
+    Servers MUST reject a request that repeats a query parameter
     name or carries one the signature doesn't cover. Query parameter
     names and values MUST use only ASCII letters, digits, -, . and _.
     The caller sends its delegation in
     Hashi-Delegation. On redeem and send, the delegation's iss MUST equal
     the HID of the claimed hashi (requester.hashi on redeem, from on send).
-    On inbox and grants operations, the delegation MUST belong to the
-    owner. Grants calls MUST be rejected if created is over 5 minutes old
+    Redeem MUST be signed by a device delegation: only a person accepts
+    an offer.
+    On inbox, grants and rules operations, the delegation MUST belong to
+    the owner, and an agent's delegation MUST also be listed in the
+    owner's agents. Grants calls MUST be rejected if created is over 5 minutes old
     or a request with the same signature base was seen before.
     OpenAPI cannot express RFC 9421, so the headers are listed as
     parameters; verification rules are in the specification.
@@ -157,7 +160,7 @@ paths:
   /redeem:
     post:
       operationId: redeemOffer
-      summary: Redeem an offer. Raising a level waits for the owner to confirm.
+      summary: Redeem an offer. One of the redeemer's devices only; nothing changes until the owner confirms and picks the level.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
@@ -170,22 +173,22 @@ paths:
             schema:
               $ref: '#/components/schemas/RedeemRequest'
       responses:
-        '200':
-          description: The redeemer already held the offered level or more, so there was nothing to confirm.
-          content:
-            application/hashi+json:
-              schema:
-                $ref: '#/components/schemas/RedeemResponse'
         '202':
-          description: Held until the owner confirms. The redeemer's level doesn't change until then.
+          description: No body. The acceptance waits for the owner to confirm, and the redeemer isn't told the level the owner picks.
+        '400':
+          description: Malformed request, or an offer_back that doesn't verify, has expired or isn't for requester.hashi.
           content:
             application/hashi+json:
               schema:
-                $ref: '#/components/schemas/RedeemPending'
-        '400':
-          $ref: '#/components/responses/Error'
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Not signed by a device delegation.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404':
           description: No such hashi on this server, the same answer Resolve gives.
           content:
@@ -209,19 +212,14 @@ paths:
         The server checks the sender's signature, grant or reply token,
         stamps the message with the effective level and queues it in the
         owner's incoming queue. It does not route or hold messages for
-        approval. Level-0 messages without a valid reply token MUST NOT carry
-        an envelope. The whole request MUST NOT exceed 64 KiB.
+        approval. A level-0 message without a valid reply token gets nah
+        unless the owner's level0.accept is true, in which case the request
+        body MUST NOT exceed 8 KiB. The whole request MUST NOT exceed 64 KiB.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
         - $ref: '#/components/parameters/ContentDigest'
         - $ref: '#/components/parameters/HashiDelegation'
-        - name: Hashi-Grant
-          in: header
-          required: false
-          description: Grant JWS. Optional; the server's grant record is authoritative.
-          schema:
-            $ref: '#/components/schemas/JWS'
         - name: Hashi-Reply
           in: header
           required: false
@@ -242,7 +240,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/SendAccepted'
         '400':
-          $ref: '#/components/responses/Error'
+          description: Malformed request, or a level-0 message without a valid reply token whose body is over 8 KiB.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -507,13 +509,12 @@ paths:
       operationId: setGrant
       summary: Confirm, lower or remove a grant, or refuse a HID. One of the owner's devices only.
       description: |
-        The level MUST NOT be higher than the recorded one, or the pending
-        one if that is higher (0 if neither); raising needs a new offer and
-        this confirm. A device can't confirm a level above its own max_lvl.
-        Level 0 removes the grant. A request for a HID with a pending
-        acceptance answers it: the pending level confirms it, a level between
-        that and the current one confirms less, and the current level or
-        lower declines it. refuse true
+        The level MUST NOT be higher than the recorded one (0 if none)
+        unless the HID has a pending acceptance. A device can't raise a
+        grant above its own max_lvl. Level 0 removes the grant. A request for
+        a HID with a pending acceptance answers it: a level above the current
+        one confirms it at that level, the current level declines it, and a
+        lower one declines it and lowers the grant. refuse true
         sets the level to 0 and refuses the HID (its messages get nah, its
         redemptions are answered as expired); false lifts a refusal without
         granting anything; omitted keeps the setting.
@@ -547,7 +548,95 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: The level is higher than both the recorded and the pending level.
+          description: The level is higher than the recorded one and nothing is pending.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /rules:
+    get:
+      operationId: fetchRules
+      summary: Get the owner's rules for their agents. Any of the owner's agents or devices.
+      description: |
+        The rules are a compact JWS signed by the owner's identity key, with
+        typ hashi-rules+jwt and the claims iss, hashi, iat and sealed (a JWE
+        in General JSON Serialization sealed to the owner's inbox key). The
+        server can't read them. Agents check them before following them, as
+        the specification describes.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/HashiDelegation'
+      responses:
+        '200':
+          description: The owner's rules.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/RulesBody'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: The server holds no rules for the owner, or doesn't keep rules.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    put:
+      operationId: storeRules
+      summary: Store the owner's rules for their agents. One of the owner's devices only.
+      description: |
+        The server checks that the JWS's typ is hashi-rules+jwt and its
+        signature verifies with identity_key in the document it holds, that
+        iss and hashi are that document's hid and hashi, that sealed names
+        the kid of that document's inbox_key, and that iat is later than that
+        of the rules it holds and no more than 60 seconds in the future. It
+        keeps only the latest rules, and drops them when it drops the held
+        document after a reset or deletion. A server that doesn't keep rules
+        answers 404.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/ContentDigest'
+        - $ref: '#/components/parameters/HashiDelegation'
+      requestBody:
+        required: true
+        content:
+          application/hashi+json:
+            schema:
+              $ref: '#/components/schemas/RulesBody'
+      responses:
+        '204':
+          description: Stored.
+        '400':
+          description: Malformed request, or rules that fail the server's checks.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Not signed by one of the owner's device delegations.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: This server doesn't keep rules.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The rules' iat isn't later than that of the rules the server holds.
           content:
             application/hashi+json:
               schema:
@@ -814,6 +903,38 @@ components:
             kid:
               type: string
 
+    EncryptionJWK:
+      description: X25519 or P-256 public key for key agreement (ECDH-ES+A256KW).
+      oneOf:
+        - type: object
+          required: [kty, crv, x, kid]
+          properties:
+            kty:
+              const: OKP
+            crv:
+              const: X25519
+            x:
+              type: string
+            use:
+              const: enc
+            kid:
+              type: string
+        - type: object
+          required: [kty, crv, x, y, kid]
+          properties:
+            kty:
+              const: EC
+            crv:
+              const: P-256
+            x:
+              type: string
+            y:
+              type: string
+            use:
+              const: enc
+            kid:
+              type: string
+
     Intent:
       type: string
       description: A token agents may use to decide which messages are theirs; never free text.
@@ -838,13 +959,14 @@ components:
           type: boolean
         pending:
           type: object
-          description: Present while someone has redeemed an offer and the owner hasn't answered. The offer's level and nonce, so the owner's app can tell which offer it was. An entry with pending always carries the hashi the redeemer gave.
-          required: [level, nonce]
+          description: Present while someone has redeemed an offer and the owner hasn't answered. Holds the offer's nonce, so the owner's app can tell which offer it was, and any offer_back the redeemer sent. An entry with pending always carries the hashi the redeemer gave.
+          required: [nonce]
           properties:
-            level:
-              $ref: '#/components/schemas/TrustLevel'
             nonce:
               type: string
+            offer_back:
+              $ref: '#/components/schemas/JWS'
+              description: The redeemer's own offer, for the owner to accept when confirming them.
         updated:
           type: integer
           description: When the entry last changed or an offer was last redeemed for it (seconds since the epoch).
@@ -858,6 +980,15 @@ components:
           items:
             $ref: '#/components/schemas/Grant'
 
+    RulesBody:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          $ref: '#/components/schemas/JWS'
+          description: The owner's rules, signed by their identity key and sealed to their inbox key.
+      additionalProperties: false
+
     SetGrant:
       type: object
       required: [level]
@@ -869,7 +1000,7 @@ components:
 
     PublishRequest:
       type: object
-      required: [version, hashi, hid, epoch, identity_key, binding, endpoint, agents, rotations, revoked]
+      required: [version, hashi, hid, epoch, identity_key, binding, endpoint, agents, inbox_key, inbox_key_copies, rotations, revoked]
       description: A hashi document without fresh, which the server adds.
       properties:
         version:
@@ -894,13 +1025,17 @@ components:
           $ref: '#/components/schemas/HashiDocument/properties/level0'
         agents:
           $ref: '#/components/schemas/HashiDocument/properties/agents'
+        inbox_key:
+          $ref: '#/components/schemas/HashiDocument/properties/inbox_key'
+        inbox_key_copies:
+          $ref: '#/components/schemas/HashiDocument/properties/inbox_key_copies'
         rotations:
           $ref: '#/components/schemas/HashiDocument/properties/rotations'
         revoked:
           $ref: '#/components/schemas/HashiDocument/properties/revoked'
     HashiDocument:
       type: object
-      required: [version, hashi, hid, epoch, identity_key, binding, fresh, endpoint, agents, rotations, revoked]
+      required: [version, hashi, hid, epoch, identity_key, binding, fresh, endpoint, agents, inbox_key, inbox_key_copies, rotations, revoked]
       description: Every field except binding, fresh, rotations and srv_next is covered by the identity-signed binding.
       properties:
         version:
@@ -933,11 +1068,19 @@ components:
             accept:
               type: boolean
               default: false
+              description: If true, strangers can send short messages, with a request body of at most 8 KiB (specification, Section 8.3).
         agents:
           type: array
-          description: Delegations of the agents that receive the owner's messages. New messages are sealed to every one.
+          description: Delegations of the owner's agents, each app's own agent included. Each gets a copy of the inbox key in inbox_key_copies.
+          minItems: 1
           items:
             $ref: '#/components/schemas/JWS'
+        inbox_key:
+          $ref: '#/components/schemas/EncryptionJWK'
+          description: The public half of the inbox key, with its SHA-256 JWK thumbprint (RFC 7638) as kid. Every message to the owner is sealed to this key alone.
+        inbox_key_copies:
+          $ref: '#/components/schemas/JWE'
+          description: The private inbox keys, as a JWE with one recipient per delegation in agents, sealed to that delegation's enc key with its jti as kid. Its plaintext is a JWK Set of private inbox keys (specification, Section 9.1).
         rotations:
           type: array
           description: Rotation chain, oldest first.
@@ -966,24 +1109,9 @@ components:
             hashi:
               $ref: '#/components/schemas/Hashi'
           additionalProperties: false
-
-    RedeemResponse:
-      type: object
-      required: [grant, level]
-      properties:
-        grant:
+        offer_back:
           $ref: '#/components/schemas/JWS'
-        level:
-          $ref: '#/components/schemas/TrustLevel'
-          description: The level the redeemer holds, which is higher than the offer's if they already held more. The grant token's lvl is the same value.
-
-    RedeemPending:
-      type: object
-      required: [pending]
-      properties:
-        pending:
-          type: boolean
-          const: true
+          description: A one-time offer of the redeemer's own, for the owner to accept when confirming them. Its hashi MUST be requester.hashi. Apps SHOULD send one unless the user turns this off (specification Section 8.2).
 
     ServerDocument:
       type: object
@@ -1033,9 +1161,10 @@ components:
       type: object
       description: |
         JWE in General JSON Serialization (RFC 7516), alg ECDH-ES+A256KW,
-        enc A256GCM, one recipient per sealed-to agent with kid set to that
-        agent's delegation jti. The plaintext is a compact JWS
-        (typ hashi-msg+jwt) signed by the sender's agent key.
+        enc A256GCM, with each recipient's kid naming the key it is sealed
+        to. A message envelope is sealed to the receiving owner's inbox key
+        alone, and its plaintext is a compact JWS (typ hashi-msg+jwt) signed
+        by the sender's agent key. It MUST NOT use zip.
       required: [protected, recipients, iv, ciphertext, tag]
       properties:
         protected:
@@ -1122,7 +1251,7 @@ components:
           $ref: '#/components/schemas/JWS'
         claimed_by:
           type: [string, 'null']
-          description: jti of the claiming agent's delegation, for messages in processing.
+          description: jti of the claiming agent's delegation, for messages in processing. A renewed delegation for the same signing key counts as the same agent.
 
     InboxList:
       type: object
