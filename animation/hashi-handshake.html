@@ -188,10 +188,11 @@ const ACTORS = {
   sserver: { who: "server", title: "Sarah's HASHI server", sub: "hashi.example.org" }
 };
 const DASHED = { inperson: 1, inpersonBack: 1 };
-const APP = { sLabel: "Sarah's app", sSub: "HASHI app · her phone" };
+const APP = { sLabel: "Sarah's app", sSub: "HASHI app · device key" };
 const CARDS = {
-  ask: { rows: ["John Doe", "john#my.domain", "level 4 · “coffee”"], chip: "Accept" },
-  done: { rows: ["John Doe", "john#my.domain", "level 4 · “coffee”"], chip: "Accepted ✓", done: true },
+  ask: { rows: ["John Doe", "john#my.domain", "✓ offer one back · level 2"], chip: "Accept" },
+  done: { rows: ["John Doe", "john#my.domain", "✓ offer one back · level 2"], chip: "Sent ✓", done: true },
+  linked: { rows: ["John's in", "john#my.domain", "confirmed at your level 2"], chip: "Both ways ✓", done: true },
   page: { rows: ["Got a hashi?", "john#my.domain", "Open in app · Get one"] }
 };
 
@@ -202,94 +203,95 @@ const STEPS = [
     codeLabel: "Three layers of John",
     code: "John Doe          ← who a person sees\njohn#my.domain    ← the address he hands out\nhid:Q3pT0gq…      ← his cryptographic identity\n\nSpoken aloud: \"john hash my dot domain\"" },
 
-  { when: "12:41 · in person", t: "John shows an offer",
-    body: "John's phone signs a one-time offer with its device key, inviting Sarah in at trust level 4. The QR code holds an ordinary HTTPS link, so any phone camera can open it, and the offer rides in the link's fragment, so it never lands in a server log or a link preview. Sarah scans it with her HASHI app. With only her camera, she'd land on John's page and tap “Open in app”.",
-    checks: ["Signed by John's device key, with its delegation in the dlg header", "One-time, expires in 48 hours", "An HTTPS link: any camera opens it, and HASHI apps read it directly", "The note “coffee” is display text only, never agent instructions"],
+  { when: "12:41 · in person", t: "John shows a handshake",
+    body: "John's phone signs a one-time handshake, an offer in the protocol, with its device key. He has level 4 in mind for Sarah, but that stays on his phone: the offer names no level. The QR code holds an ordinary HTTPS link, so any phone camera can open it, and the offer rides in the link's fragment, so it never lands in a server log or a link preview. Sarah scans it with her HASHI app. With only her camera, she'd land on John's page and tap “Open in app”.",
+    checks: ["Signed by John's device key, with its delegation in the dlg header", "One-time, expires in 48 hours", "No level: John picks one when he confirms whoever accepts", "An HTTPS link: any camera opens it, and HASHI apps read it directly"],
     active: ["jphone", "sphone"], paths: ["inperson"], qr: "on", ...APP,
-    packets: [{ path: "inperson", label: "QR · offer, level 4", who: "john" }],
+    packets: [{ path: "inperson", label: "QR · handshake", who: "john" }],
     codeLabel: "QR contents → offer payload",
-    code: "https://my.domain/.well-known/hashi/john#o=eyJhbGci…\n" + " ".repeat(40) + "└ offer rides in the fragment\n\n{\n  \"typ\": \"hashi-offer+jwt\",\n  \"iss\": \"hid:Q3pT0gq…\",\n  \"hashi\": \"john#my.domain\",\n  \"display_name\": \"John Doe\",\n  \"lvl\": 4,\n  \"nonce\": \"b9Xk2…\",\n  \"one_time\": true,\n  \"iat\": 1791270000,\n  \"exp\": 1791442800,\n  \"note\": \"coffee\"\n}" },
+    code: "https://my.domain/.well-known/hashi/john#o=eyJhbGci…\n" + " ".repeat(40) + "└ offer rides in the fragment\n\n{\n  \"typ\": \"hashi-offer+jwt\",\n  \"iss\": \"hid:Q3pT0gq…\",\n  \"hashi\": \"john#my.domain\",\n  \"display_name\": \"John Doe\",\n  \"nonce\": \"b9Xk2…\",\n  \"one_time\": true,\n  \"iat\": 1791270000,\n  \"exp\": 1791442800\n}\n\nNo level. John's phone remembers 4 for this nonce." },
 
   { when: "12:41 · Sarah's app", t: "Resolve John's hashi",
-    body: "Sarah's app fetches John's hashi document from the same URL that was in the QR code, this time asking for JSON. A browser asking for that URL gets John's page instead. No redirects, no other ports. The app checks that John himself, not just whoever hosts my.domain, vouches for what's in it, including the list of agents that receive his messages.",
+    body: "Sarah's app fetches John's hashi document from the same URL that was in the QR code, this time asking for JSON. A browser asking for that URL gets John's page instead. No redirects, no other ports. The app checks that John himself, not just whoever hosts my.domain, vouches for what's in it, including his inbox key, which every message to him is sealed to.",
     checks: ["Rotation chain from the genesis key matches the HID", "Binding is signed by John's identity key and matches every field", "Freshness statement is under 24 hours old", "Pins HID, identity key and epoch 3 for next time"],
     active: ["sphone", "server"], paths: ["req", "resp"], qr: "on", ...APP,
     packets: [{ path: "req", label: "GET …/hashi/john (JSON)", who: "sarah" }, { path: "resp", label: "hashi document", who: "server" }],
     codeLabel: "GET https://my.domain/.well-known/hashi/john",
-    code: "Accept: application/hashi+json\n\n{\n  \"version\": \"0.1\",\n  \"hashi\": \"john#my.domain\",\n  \"display_name\": \"John Doe\",\n  \"hid\": \"hid:Q3pT0gq1mRk2b0nN7y3A…\",\n  \"epoch\": 3,\n  \"identity_key\": { \"kty\": \"OKP\", \"crv\": \"Ed25519\", … },\n  \"binding\": \"<JWS, John's identity key>\",\n  \"fresh\": \"<JWS, server key, re-signed hourly>\",\n  \"endpoint\": \"https://hashi.my.domain/v1\",\n  \"agents\": [\"<phone agent delegation>\", \"<laptop agent delegation>\"],\n  \"rotations\": [],\n  \"revoked\": [\"dlg_1b9…\"]\n}" },
+    code: "Accept: application/hashi+json\n\n{\n  \"version\": \"0.1\",\n  \"hashi\": \"john#my.domain\",\n  \"display_name\": \"John Doe\",\n  \"hid\": \"hid:Q3pT0gq1mRk2b0nN7y3A…\",\n  \"epoch\": 3,\n  \"identity_key\": { \"kty\": \"OKP\", \"crv\": \"Ed25519\", … },\n  \"binding\": \"<JWS, John's identity key>\",\n  \"fresh\": \"<JWS, server key, re-signed hourly>\",\n  \"endpoint\": \"https://hashi.my.domain/v1\",\n  \"agents\": [\"<phone agent delegation>\", \"<laptop agent delegation>\"],\n  \"inbox_key\": { \"kty\": \"EC\", \"crv\": \"P-256\", \"kid\": \"Hq4c…\", … },\n  \"inbox_key_copies\": \"<JWE, one copy per agent>\",\n  \"rotations\": [],\n  \"revoked\": [\"dlg_1b9…\"]\n}" },
 
   { when: "12:41 · Sarah's app", t: "Check it's John's, then ask Sarah",
-    body: "Anyone could print a QR code claiming to be John. The app follows the chain from John's identity key, through the delegation for his phone, to the offer itself. Only when everything checks out does it ask Sarah to confirm, showing John's name next to his hashi so a look-alike name can't fool her.",
-    checks: ["offer iss = delegation iss = document hid", "Offer signature verifies with the device key in the delegation", "Delegation role is device, signed by the current identity key, not expired or revoked", "Offered level 4 is within the delegation's max_lvl"],
+    body: "Anyone could print a QR code claiming to be John. The app follows the chain from John's identity key, through the delegation for his phone, to the offer itself. Only when everything checks out does it ask Sarah, showing John's name next to his hashi so a look-alike name can't fool her. “Offer one back” is on, so she picks a level for John, 2. Neither of them ever sees the level the other picks.",
+    checks: ["offer iss = delegation iss = document hid", "Offer signature verifies with the device key in the delegation", "Delegation role is device, signed by the current identity key, not expired or revoked", "Sarah's level for John stays on her phone"],
     active: ["sphone"], paths: [], qr: "on", packets: [], confirm: "ask", ...APP,
     codeLabel: "Chain of signatures",
-    code: "identity key        hid:Q3pT0gq…   (kept off the phone)\n  └─ signs  device delegation   dlg_2c8e…\n             role: device   max_lvl: 7   exp: 30 days\n       └─ signs  offer\n                  lvl: 4   nonce: b9Xk2…   one_time\n\nAll three name the same HID, so the offer is John's.\n\nThe app asks:  John Doe · john#my.domain\n               level 4 · “coffee”      [ Accept ]" },
+    code: "identity key        hid:Q3pT0gq…   (kept off the phone)\n  └─ signs  device delegation   dlg_2c8e…\n             role: device   max_lvl: 7   exp: 30 days\n       └─ signs  offer\n                  nonce: b9Xk2…   one_time\n\nAll three name the same HID, so the offer is John's.\n\nThe app asks:  John Doe · john#my.domain\n               ✓ offer one back · level 2   [ Accept ]" },
 
-  { when: "12:42 · Sarah's app → John's server", t: "Sarah accepts, her app redeems",
-    body: "Sarah taps Accept. Her app posts the offer to the endpoint in John's verified document, signed with its agent-role key. In HASHI, “agent” means anything acting for Sarah, so her app holds one just as an AI agent does. John's server burns the nonce and records level 4 against Sarah's HID, not against this app or phone. Then it nudges John's phone, whose app lists his grants and shows who redeemed.",
-    checks: ["Request signature (RFC 9421) and the app's delegation from Sarah verify", "Offer re-checked against the server's own record of john", "Nonce marked used, atomically", "Grant recorded: Sarah's HID → 4", "John's phone woken; his app shows: redeemed by sarah#example.org"],
-    active: ["sphone", "server", "jphone"], paths: ["req", "resp", "notify"], qr: "used", ledger: 4, confirm: "done", ...APP,
-    packets: [{ path: "req", label: "POST /redeem (signed)", who: "sarah" }, { path: "resp", label: "grant · level 4", who: "server" }, { path: "notify", label: "something changed", who: "server" }],
+  { when: "12:42 · Sarah's app → John's server", t: "Sarah accepts, and sends one back",
+    body: "Sarah taps Accept and Face ID. Her app posts the offer to the endpoint in John's verified document, signed with her phone's device key, and adds an offer of her own as offer_back. Only a person accepts a handshake, so John's server refuses anything an agent signs. It burns the nonce and holds Sarah's acceptance as pending, with nothing granted yet. Her app gets a bare 202, and John's phone gets a nudge.",
+    checks: ["Request signature (RFC 9421) and Sarah's device delegation verify", "Signed by a device, so a person accepted; an agent gets 403", "Both offers checked: John's against his own record, Sarah's against her document", "Nonce marked used, atomically", "Held as pending for Sarah's HID; John's phone woken"],
+    active: ["sphone", "server", "jphone"], paths: ["req", "resp", "notify"], qr: "used", ledgerText: "Sarah  hid:Zr8L… · pending", confirm: "done", ...APP,
+    packets: [{ path: "req", label: "POST /redeem · offer back", who: "sarah" }, { path: "resp", label: "202 · pending", who: "server" }, { path: "notify", label: "something changed", who: "server" }],
     codeLabel: "POST https://hashi.my.domain/v1/redeem",
-    code: "Hashi-Delegation: eyJ…   ← the app's agent-role key, from Sarah's HID\nSignature: sig1=:…:\n\n{\n  \"offer\": \"eyJhbGciOiJFUzI1NiIs…\",\n  \"requester\": { \"hashi\": \"sarah#example.org\" }\n}\n\n← 200  grant token (evidence; the server's record rules)\n{\n  \"typ\": \"hashi-grant+jwt\",\n  \"iss\": \"hid:Q3pT0gq…\",\n  \"sub\": \"hid:Zr8L…\",\n  \"lvl\": 4,\n  \"gid\": \"grt_91c…\"\n}\n\n→ John's phone: an empty push, then his app lists grants:\n  Sarah · sarah#example.org redeemed your offer" },
+    code: "Hashi-Delegation: eyJ…   ← Sarah's phone, role: device\nSignature: sig1=:…:\n\n{\n  \"offer\": \"eyJhbGciOiJFUzI1NiIs…\",\n  \"requester\": { \"hashi\": \"sarah#example.org\" },\n  \"offer_back\": \"<Sarah's own offer, one-time>\"\n}\n\n← 202   no body\n\nNothing is granted until John confirms, and Sarah\nis never told the level he picks." },
 
-  { when: "12:43 · in person", t: "Trust only runs one way",
-    body: "Sarah's agents can now send John's agents messages at level 4. John has gained nothing with Sarah. If she wants him to be able to start conversations with her, she shows him an offer of her own, at whatever level she picks. Each side only ever sets the level it grants.",
-    active: ["jphone", "sphone"], paths: ["inpersonBack"], ledger: 4, ...APP,
-    packets: [{ path: "inpersonBack", label: "her own offer (optional)", who: "sarah", ghost: true }],
-    codeLabel: "Who trusts whom",
-    code: "John → Sarah    level 4    (John's offer, redeemed)\nSarah → John    level 0    (until she issues her own)\n\nRules\n· the offer is a ceiling; the server may record less\n· lowering is instant and one-sided\n· raising needs a new offer" },
+  { when: "12:46 · John's phone → both servers", t: "John confirms, and it goes both ways",
+    body: "John's app lists his grants and finds Sarah pending, with an offer of hers. It suggests the 4 he had in mind. He taps Confirm, and his phone sets Sarah's level and, in the same tap, redeems her offer at her server. Sarah's app sees that John took it and confirms him at the 2 she picked, without asking her again. That's two grants, one on each server.",
+    checks: ["Confirm signed by John's device: only a device changes a grant", "John's server records Sarah's HID → 4 and drops the pending entry", "Sarah's offer back works once, so it can't undo a later change", "Sarah's server holds John pending until her app confirms him at 2"],
+    active: ["jphone", "server", "sserver", "sphone"], paths: ["pickup", "reply", "sdeliver", "spick"], qr: "used", ledger: 4, stag: "SARAH'S GRANTS", sinbox: "John  hid:Q3pT… → 2", confirm: "linked", ...APP,
+    packets: [{ path: "pickup", label: "PUT /grants · level 4", who: "john" }, { path: "reply", label: "POST /redeem · hers", who: "john" }, { path: "sdeliver", label: "something changed", who: "server" }, { path: "spick", label: "PUT /grants · level 2", who: "sarah" }],
+    codeLabel: "PUT https://hashi.my.domain/v1/grants/hid:Zr8L…",
+    code: "GET /v1/grants  → Sarah · pending · offer_back: eyJ…\n\nPUT …/grants/hid:Zr8L…   ← John's phone, role: device\n{ \"level\": 4 }\n\nPOST https://hashi.example.org/v1/redeem\n{ \"offer\": \"<Sarah's offer back>\",\n  \"requester\": { \"hashi\": \"john#my.domain\" } }\n← 202\n\nSarah's app: PUT …/grants/hid:Q3pT0gq… { \"level\": 2 }\n\nJohn → Sarah    level 4    (on John's server)\nSarah → John    level 2    (on Sarah's server)" },
 
   { when: "19:05 · Sarah's agent → John's server", t: "That evening, Sarah's agent sends a sealed message",
-    body: "Sarah asks her agent to set up the coffee. The grant belongs to Sarah's HID, so her agent can use it. It writes the request, signs it with its own key, and seals it to both of John's agents using the encryption keys in his document. Only the intent and a new thread ID stay readable. It also offers John a reply token, so he can answer even though Sarah hasn't granted him anything.",
-    checks: ["Sealed (JWE) to John's phone and laptop agents only", "Signed inside by Sarah's agent, so the sender survives leaving the server", "Outside the envelope: no free text, just to, from, intent and thread", "Reply token: John's HID may reply on this thread for 30 days"],
+    body: "Sarah asks her agent to set up the coffee. The grant belongs to Sarah's HID, so her agent can use it. It writes the request, signs it with its own key, and seals it to the inbox key in John's document. Only the intent and a new thread ID stay readable. It also offers John a reply token for this thread.",
+    checks: ["Sealed (JWE) to John's inbox key, which each of his agents holds", "Signed inside by Sarah's agent, so the sender survives leaving the server", "Outside the envelope: no free text, just to, from, intent and thread", "Reply token: John's HID may reply on this thread for 30 days"],
     active: ["sphone", "server"], paths: ["req"], ledger: 4, jagent: "watching inbox",
     packets: [{ path: "req", label: "POST /messages · sealed", who: "sarah" }],
     codeLabel: "POST https://hashi.my.domain/v1/messages",
-    code: "Hashi-Delegation: eyJ…         ← Sarah's agent key\nSignature: sig1=:…:\n\n{\n  \"to\": \"john#my.domain\",\n  \"from\": \"sarah#example.org\",\n  \"intent\": \"schedule\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"envelope\": { \"recipients\": [ phone agent, laptop agent ],\n                \"ciphertext\": \"9fQ2…\" },\n  \"reply_token\": \"eyJ…\"\n}\n\ninside the envelope, signed by Sarah's agent:\n  \"body\": { \"ask\": \"coffee tomorrow?\", \"slots\": [ … ] }" },
+    code: "Hashi-Delegation: eyJ…         ← Sarah's agent key\nSignature: sig1=:…:\n\n{\n  \"to\": \"john#my.domain\",\n  \"from\": \"sarah#example.org\",\n  \"intent\": \"schedule\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"envelope\": { \"recipients\": [ John's inbox key ],\n                \"ciphertext\": \"9fQ2…\" },\n  \"reply_token\": \"eyJ…\"\n}\n\ninside the envelope, signed by Sarah's agent:\n  \"body\": { \"ask\": \"coffee tomorrow?\", \"slots\": [ … ] }" },
 
   { when: "19:05 · John's server", t: "John's server stamps it and queues it",
-    body: "John's server can't read the message and doesn't route it. It checks who sent it and takes the lowest of three numbers as Sarah's effective level, so if John had lowered her since lunch, that would apply right now. Then it stamps the message with that level and drops it into John's incoming queue. Sarah's agent gets yeah and goes back to sleep. The message now waits there for one of John's agents to collect it.",
-    checks: ["Recorded for Sarah's HID: 4", "Her agent delegation's max_lvl: 6", "Effective level 4, so content is allowed", "Stamp signed by the server key, bound to the ciphertext"],
-    active: ["server", "sphone"], paths: ["resp"], ledger: 4, decide: "min(4, 4, 6) = 4 · stamped", inbox: "incoming 1 · schedule", jagent: "watching inbox",
+    body: "John's server can't read the message and doesn't route it. It checks who sent it and takes the lower of two numbers, the level John gave Sarah and her agent's own limit, as her effective level. If John had lowered her since lunch, that would apply right now. Then it stamps the message with that level and drops it into John's incoming queue. Sarah's agent gets yeah and goes back to sleep.",
+    checks: ["Recorded for Sarah's HID: 4", "Her agent delegation's max_lvl: 6", "Effective level min(4, 6) = 4", "Stamp signed by the server key, bound to the ciphertext"],
+    active: ["server", "sphone"], paths: ["resp"], ledger: 4, decide: "min(4, 6) = 4 · stamped", inbox: "incoming 1 · schedule", jagent: "watching inbox",
     packets: [{ path: "resp", label: "yeah · queued", who: "server" }],
     codeLabel: "The stamp, then ← 202 yeah",
-    code: "{\n  \"typ\": \"hashi-stamp+jwt\",\n  \"iss\": \"hid:Q3pT0gq…\",\n  \"sub\": \"hid:Zr8L…\",\n  \"from\": \"sarah#example.org\",\n  \"intent\": \"schedule\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"lvl\": 4,\n  \"reply\": false,\n  \"ct\": \"<hash of the ciphertext>\",\n  \"mid\": \"msg_5e1…\"\n}\n\n← 202  { \"result\": \"yeah\", \"id\": \"msg_5e1…\" }\n\n\"yeah\" means queued, not read." },
+    code: "{\n  \"typ\": \"hashi-stamp+jwt\",\n  \"iss\": \"hid:Q3pT0gq…\",\n  \"sub\": \"hid:Zr8L…\",\n  \"from\": \"sarah#example.org\",\n  \"to\": \"john#my.domain\",\n  \"intent\": \"schedule\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"lvl\": 4,\n  \"reply\": false,\n  \"ct\": \"<hash of the ciphertext>\",\n  \"mid\": \"msg_5e1…\"\n}\n\n← 202  { \"result\": \"yeah\", \"id\": \"msg_5e1…\" }\n\n\"yeah\" means queued, not read." },
 
   { when: "21:30 · John's agent", t: "John's agent takes it off his inbox",
-    body: "John has told his agent, running on his phone, to keep an eye on his HASHI inbox. The next time it checks, it lists the inbox, sees a scheduling message sealed to it, and claims it. The claim moves the message from incoming to processing, so his laptop agent leaves it alone. The agent downloads the sealed message, checks the stamp against John's own server key, opens the envelope, and checks Sarah's signature inside.",
+    body: "John has told his agent, running on his phone, to keep an eye on his HASHI inbox. The next time it checks, it lists the inbox, sees a scheduling message and claims it. The claim moves the message from incoming to processing, so his laptop agent leaves it alone. The agent downloads the sealed message, checks the stamp against John's own server key, opens the envelope with its copy of John's inbox key, and checks Sarah's signature inside.",
     checks: ["The agent pulls; the server never pushes content", "Claim is atomic: incoming → processing", "Stamp verifies, and its hash matches the ciphertext", "Inner signature chains to sarah#example.org and matches the stamp"],
     active: ["server", "jphone"], paths: ["pickup", "pickupResp"], ledger: 4, inbox: "processing 1 · agent", jagent: "claimed · coffee?",
     packets: [{ path: "pickup", label: "list inbox", who: "john" }, { path: "pickupResp", label: "1 new · schedule", who: "server" }, { path: "pickup", label: "claim", who: "john" }, { path: "pickupResp", label: "sealed message", who: "server" }],
     codeLabel: "GET /v1/inbox?intent=schedule, then claim",
-    code: "{\n  \"id\": \"msg_5e1…\",\n  \"queue\": \"incoming\",\n  \"stamp\": \"eyJ…\",\n  \"envelope\": { \"recipients\": [ { \"kid\": \"dlg_phone…\" }, … ] },\n  \"reply_token\": \"eyJ…\"\n}\n\nPOST /v1/inbox/msg_5e1…/claim   → 200, now in processing\n(a second claim gets 409)\n\nopened: Sarah · level 4 · “coffee tomorrow?”" },
+    code: "{\n  \"id\": \"msg_5e1…\",\n  \"queue\": \"incoming\",\n  \"stamp\": \"eyJ…\",\n  \"envelope\": { \"recipients\": [ { \"kid\": \"Hq4c…\" } ], … },\n  \"reply_token\": \"eyJ…\"\n}                         └ John's inbox key\n\nPOST /v1/inbox/msg_5e1…/claim   → 200, now in processing\n(a second claim gets 409)\n\nopened: Sarah · level 4 · “coffee tomorrow?”" },
 
   { when: "21:31 · John's agent → Sarah's server", t: "John's agent replies to Sarah's server",
-    body: "John has no grant from Sarah, so his agent presents her reply token. It sends the reply to Sarah's HASHI server on the same thread, sealed only to the agent that wrote to it, so none of Sarah's other agents can open it. Sarah's server checks the token, stamps the reply at John's own level, 0, marks it as a reply and queues it.",
-    checks: ["Same thread ID, like an email reply", "Sealed only to the encryption key in Sarah's agent delegation", "Reply token: signed by Sarah's agent, names John, this thread, not expired", "Stamped lvl 0, reply: true"],
+    body: "John's agent sends the reply to Sarah's HASHI server on the same thread, sealed to her inbox key, and presents her reply token. Sarah confirmed John at 2, so the reply goes in at level 2. Sarah's server checks the token, stamps the reply, marks it as a reply and queues it.",
+    checks: ["Same thread ID, like an email reply", "Sealed to Sarah's inbox key, so any of her agents can open it", "Reply token: signed by Sarah's agent, names John, this thread, not expired", "Stamped lvl 2, reply: true"],
     active: ["jphone", "sserver"], paths: ["reply"], ledger: 4, inbox: "processing 1 · agent", sinbox: "incoming 1 · reply", serverDim: true, jagent: "replied on thread",
     packets: [{ path: "reply", label: "reply · Hashi-Reply", who: "john" }],
     codeLabel: "POST https://hashi.example.org/v1/messages",
-    code: "Hashi-Delegation: eyJ…     ← John's phone agent key\nHashi-Reply: eyJ…          ← Sarah's reply token\n\n{\n  \"to\": \"sarah#example.org\",\n  \"from\": \"john#my.domain\",\n  \"intent\": \"schedule\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"envelope\": { \"recipients\": [ Sarah's agent only ] }\n}\n\nreply token\n{\n  \"typ\": \"hashi-reply+jwt\",\n  \"iss\": \"hid:Zr8L…\",\n  \"sub\": \"hid:Q3pT0gq…\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"exp\": iat + 30 days\n}" },
+    code: "Hashi-Delegation: eyJ…     ← John's phone agent key\nHashi-Reply: eyJ…          ← Sarah's reply token\n\n{\n  \"to\": \"sarah#example.org\",\n  \"from\": \"john#my.domain\",\n  \"intent\": \"schedule\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"envelope\": { \"recipients\": [ Sarah's inbox key ] }\n}\n\nreply token\n{\n  \"typ\": \"hashi-reply+jwt\",\n  \"iss\": \"hid:Zr8L…\",\n  \"hashi\": \"sarah#example.org\",\n  \"sub\": \"hid:Q3pT0gq…\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"exp\": iat + 30 days\n}" },
 
   { when: "07:50 next day · Sarah's agent", t: "Back and forth until it's agreed",
     body: "Sarah's agent picks the reply up by its thread the next time it runs. The agents go back and forth through each other's inboxes, each whenever it's online, until they settle on Thursday at 8, then delete the messages. Neither agent ever had to be reachable from the internet, and neither server could read a word.",
-    checks: ["Found by thread ID, sealed to this agent", "Sarah's later messages need no token: she has level 4 at John's", "John keeps using the same reply token on this thread", "Agents that can reach each other directly may move to A2A"],
+    checks: ["Found by thread ID, opened with Sarah's inbox key", "Sarah's messages go in at her level 4 at John's", "John's go in at his level 2 at Sarah's, so he can start new threads too", "Agents that can reach each other directly may move to A2A"],
     active: ["sphone", "sserver"], paths: ["spick", "sdeliver"], ledger: 4, sinbox: "processing 1 · agent", serverDim: true, jagent: "agreed · Thu 8:00",
     packets: [{ path: "spick", label: "list ?thread · claim", who: "sarah" }, { path: "sdeliver", label: "John: Thu 8:00 works", who: "server" }],
     codeLabel: "At Sarah's server: the reply's stamp",
-    code: "{\n  \"typ\": \"hashi-stamp+jwt\",\n  \"iss\": \"hid:Zr8L…\",\n  \"sub\": \"hid:Q3pT0gq…\",\n  \"from\": \"john#my.domain\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"lvl\": 0,\n  \"reply\": true\n}\n\nopened: John · “Thursday 8:00 works for me”\n\nAgreed: Thursday, 8:00. Messages deleted." },
+    code: "{\n  \"typ\": \"hashi-stamp+jwt\",\n  \"iss\": \"hid:Zr8L…\",\n  \"sub\": \"hid:Q3pT0gq…\",\n  \"from\": \"john#my.domain\",\n  \"to\": \"sarah#example.org\",\n  \"thread\": \"thr_Vb3k9Qx2…\",\n  \"lvl\": 2,\n  \"reply\": true\n}\n\nopened: John · “Thursday 8:00 works for me”\n\nAgreed: Thursday, 8:00. Messages deleted." },
 
   { when: "a month later", t: "New agent, same relationship",
-    body: "Sarah moves to a different agent provider. Her identity key signs a delegation for the new agent's keys. John's server recorded the grant against Sarah's HID, so the new agent's first message is stamped at level 4 straight away. No new QR code and no new handshake.",
-    active: ["sphone", "server"], paths: ["req", "resp"], ledger: 4, decide: "min(4, 4, 6) = 4 · stamped", inbox: "incoming 1 · schedule", sLabel: "Sarah's new agent",
+    body: "Sarah moves to a different agent provider. Her identity key signs a delegation for the new agent's keys, and her app gives it a copy of her inbox key, so it can open whatever is already waiting. John's server recorded the grant against Sarah's HID, so the new agent's first message is stamped at level 4 straight away. No new QR code and no new handshake.",
+    active: ["sphone", "server"], paths: ["req", "resp"], ledger: 4, decide: "min(4, 6) = 4 · stamped", inbox: "incoming 1 · schedule", sLabel: "Sarah's new agent",
     packets: [{ path: "req", label: "send · new agent key", who: "sarah" }, { path: "resp", label: "yeah · level 4", who: "server" }],
     codeLabel: "Why it still works",
-    code: "new agent keys    → new delegation from Sarah's identity key\ngrant lookup      → hid:Zr8L… → 4   (unchanged)\neffective level   → min(4, 4, 6) = 4\n\nPeople first: agents, devices and keys change underneath;\nthe relationship doesn't." },
+    code: "new agent keys    → new delegation from Sarah's identity key\ninbox key         → a copy sealed to the new agent\ngrant lookup      → hid:Zr8L… → 4   (unchanged)\neffective level   → min(4, 6) = 4\n\nPeople first: agents, devices and keys change underneath;\nthe relationship doesn't." },
 
   { when: "what if · 12:41, no hashi", t: "No hashi? Get one",
-    body: "If Sarah had no HASHI app, her camera would open the same link in her browser, and John's page would ask “Got a hashi?”. With one, she'd tap “Open in app”. Without one, the page points her to an app store or a provider. Like email, she needs an address before anyone can reach her. Once she's set up, she taps the link again and picks up at step 3, as long as the offer is still valid.",
-    checks: ["The page never redeems, holds keys or offers chat", "Nothing is recorded until Sarah has a hashi", "The same one-time offer still works once she's set up, until it expires"],
+    body: "If Sarah had no HASHI app, her camera would open the same link in her browser, and John's page would ask “Got a hashi?”. With one, she'd tap “Open in app”. Without one, the page points her to an app store or a provider. Like email, she needs an address before anyone can reach her. Once she's set up, she taps the link again and picks up at step 3, as long as the handshake is still valid.",
+    checks: ["The page never accepts handshakes, holds keys or offers chat", "Nothing is recorded until Sarah has a hashi", "The same one-time handshake still works once she's set up, until it expires"],
     active: ["sphone", "server"], paths: ["req", "resp"], qr: "on", confirm: "page", ledgerText: "nothing redeemed", sLabel: "Sarah's browser", sSub: "no HASHI app yet",
     packets: [{ path: "req", label: "open John's page", who: "sarah" }, { path: "resp", label: "“Got a hashi?”", who: "server" }],
     codeLabel: "The same link, opened in a browser",
@@ -355,7 +357,7 @@ function buildStage() {
     }
     if (id === "sserver") {
       el("line", { x1: x + 14, x2: x + w - 14, y1: y + 54, y2: y + 54, stroke: "var(--line)" }, g);
-      const ts = el("text", { class: "tag", x: x + 14, y: y + 72 }, g); ts.textContent = "SARAH'S INBOX";
+      const ts = el("text", { class: "tag", x: x + 14, y: y + 72, id: "stag" }, g); ts.textContent = "SARAH'S INBOX";
       el("text", { class: "ledger", x: x + 14, y: y + 90, id: "sinbox" }, g);
     }
     if (id === "jphone") {
@@ -408,6 +410,7 @@ function applyState(i) {
   $("decide").textContent = st.decide || "";
   $("inbox").textContent = st.inbox || "empty";
   $("sinbox").textContent = st.sinbox || "empty";
+  $("stag").textContent = st.stag || "SARAH'S INBOX";
   $("jagent").textContent = st.jagent || "";
   $("jagenttag").style.opacity = st.jagent ? 1 : 0;
   $("srvnote").style.opacity = st.serverDim ? 1 : 0;
