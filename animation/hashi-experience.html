@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: the same stage as the handshake animation, but John's and Sarah's phones show their screens.
-   Agents and servers sit between them. Below: what happens and who decides, beside what's underneath. */
+   Agents and servers sit between them. Below: what happens and who decides. */
 :root {
   --bg: #EDF0F4;
   --surface: #FFFFFF;
@@ -40,7 +40,6 @@ header { display: grid; gap: 6px; }
 .mark { font-family: var(--display); font-weight: 700; font-size: 2.1rem; color: var(--john); line-height: 1; }
 h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
 .lede { margin: 0; color: var(--muted); max-width: 66ch; }
-.lede a { color: var(--john); }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
@@ -62,7 +61,7 @@ h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 4vw
 .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .bar b { display: block; height: 100%; width: 0; background: var(--john); }
 
-.panel { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; }
+.panel { display: grid; gap: 20px; }
 @media (max-width: 760px) { .panel { grid-template-columns: minmax(0, 1fr); } }
 .caption { min-width: 0; display: grid; align-content: start; gap: 10px; }
 .kicker { font: 500 0.75rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
@@ -72,13 +71,6 @@ h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 4vw
 .decision b { font: 600 0.7rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
 @keyframes rise { from { opacity: 0.2; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
-.under { min-width: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; align-self: start; }
-.under .lbl { font: 500 0.72rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 10px 14px; border-bottom: 1px solid var(--line); }
-.under ul { list-style: none; margin: 0; padding: 12px 14px; display: grid; gap: 7px; }
-.under li { display: grid; grid-template-columns: 14px 1fr; gap: 8px; font-size: 0.88rem; animation: rise 0.35s ease both; }
-.under li::before { content: "·"; color: var(--server); font-weight: 700; }
-.gap { margin: 0 14px 14px; padding: 9px 12px; border-left: 3px solid var(--you); background: var(--surface); border-radius: 0 8px 8px 0; font-size: 0.86rem; }
-.gap b { display: block; font: 600 0.7rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--you); margin-bottom: 2px; }
 footer { font-size: 0.82rem; color: var(--muted); }
 footer a { color: inherit; }
 
@@ -123,13 +115,13 @@ footer a { color: inherit; }
 .pkt text { font: 500 11px var(--body); fill: #fff; }
 :root[data-theme="dark"] .pkt text { fill: #0D131B; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pkt text { fill: #0D131B; } }
-@media (prefers-reduced-motion: reduce) { .under li, .decision { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .decision { animation: none; } }
 </style>
 
 <div class="wrap">
   <header>
     <div class="brand"><span class="mark" aria-hidden="true">#</span><h1>The HASHI experience</h1></div>
-    <p class="lede">What John and Sarah actually see, from John getting a hashi to their agents booking dinner. People make the decisions with a tap; their agents get on with it, even while nobody's looking. The <a href="hashi-handshake.html">handshake animation</a> shows the same story message by message.</p>
+    <p class="lede">What John and Sarah see when their agents arrange a coffee. People make the decisions with a tap, and their agents get on with it, even while nobody's looking.</p>
     <div class="legend">
       <span><i style="background:var(--john)"></i>John and his agent</span>
       <span><i style="background:var(--sarah)"></i>Sarah and her agent</span>
@@ -155,11 +147,6 @@ footer a { color: inherit; }
       <h2 id="title"></h2>
       <div class="decision" id="decision"><b id="decWho"></b><span id="decWhat"></span></div>
       <p id="body"></p>
-    </div>
-    <div class="under">
-      <div class="lbl">Underneath</div>
-      <ul id="under"></ul>
-      <div class="gap" id="gap"><b>Not in the spec yet</b><span id="gapText"></span></div>
     </div>
   </section>
 
@@ -235,137 +222,53 @@ const HOME = who => who === "john"
 const NOAPP = [["clock", "12:30"], ["sp"], ["n", "No HASHI app yet"]];
 
 const STEPS = [
-  { when: "Monday · John's phone", t: "John gets a hashi",
-    body: "John downloads a HASHI app and picks where his hashi will live. His work runs a HASHI server at my.domain, so he picks that and asks for the name john. Like choosing an email address, it's the one thing he'll hand out, and on its own it lets nobody in.",
-    decide: { who: "john", what: "picks a server and a name" },
-    active: ["jphone", "jserver"], paths: ["jpub"],
-    jscreen: [["h", "Get your hashi"], ["n", "Where should it live?"], ["opt", "● my.domain (work)"], ["opt", "○ a provider…"], ["n", "Your name"], ["field", "john # my.domain"], ["btn", "Create", "Creating…", "tap"]],
-    packets: [{ path: "jpub", label: "ask for john", who: "john", ghost: true }],
-    under: ["A hashi is local#domain: lowercase, up to 64 characters (§3.1)", "Names like admin, support and hashi are reserved (§3.1)", "Sign-up happens on the server's own page, and the hashi goes live with the app's first publish (§8.6)"] },
-
-  { when: "Monday · John's phone", t: "Face ID, and he's live",
-    body: "The app asks for Face ID and makes John's keys. He never sees them. His identity key, the root of everything, is kept off the phone in his encrypted key backup. The phone gets its own key in its secure chip, vouched for by the identity key. The app then publishes John's hashi document, and john#my.domain works.",
-    active: ["jphone", "jserver"], paths: ["jpub"], jHas: 1,
-    jscreen: [["h", "Securing your hashi"], ["face"], ["chk", "Identity key backed up"], ["chk", "This phone added"], ["chk", "Published"], ["sp"], ["m", "john#my.domain"], ["n", "You're ready."]],
-    packets: [{ path: "jpub", label: "publish hashi document", who: "john" }],
-    under: ["The identity key defines John's HID and stays off everyday devices: key sync, a recovery phrase or a hardware token (§5.2)", "The phone's device key lives in the Secure Enclave or StrongBox and needs Face ID or a PIN to sign (§5.2)", "The document is signed by John, so his server can host it but not change it (§4.3, §8.6)"] },
-
-  { when: "Monday · John's phone and agent", t: "John links his agent",
-    body: "John already uses an AI assistant and wants it to look after his HASHI inbox. The assistant gives him a pairing link, shown here as a QR code. John opens it in his HASHI app, and the app asks how far the assistant may go. He picks 6. His agent can now send and receive for him, up to level 6, but it can never hand out trust. Only John can do that.",
-    decide: { who: "john", what: "lets his agent act for him, up to level 6" },
-    active: ["jphone", "jagent", "jserver"], paths: ["jpair", "jpub"], jHas: 1, jLinked: 1, tapAt: 1,
-    jscreen: [["h", "Link an agent"], ["p", "“John's assistant”"], ["n", "wants to act for you."], ["sp"], ["n", "Up to level"], ["lvl", "◀  6  ▶"], ["btn", "Allow", "Linked ✓", "tap"], ["btn2", "Not now"]],
-    jag: "linked · up to 6",
-    packets: [{ path: "jpair", label: "link · agent's public keys", who: "john" }, { path: "jpub", label: "publish · agent added", who: "john" }],
-    under: ["The app signs an agent delegation with John's identity key: max level 6, 90 days, renewed quietly before it runs out (§5.3)", "The agent goes in John's hashi document with its own sealed copy of his inbox key, so it can open anything already waiting (§4.2, §9.1)", "An agent key can't make or accept handshakes, so John's agent can never grant trust (§5.2, §8.2)"],
-    gap: "Pairing is agreed but not written in yet. It's borrowed from Signal and WhatsApp device linking: the agent shares a pairing link holding its public keys, and the owner approves it in the app. Showing that link as a QR code is up to the client." },
-
-  { when: "Monday · John's phone", t: "John decides what trust means",
-    body: "HASHI gives trust as a number from 0 to 9 and leaves the meaning to John's app. This is John telling his agent which areas other people's agents may work with him in. Strangers are turned away unless he says otherwise.",
-    decide: { who: "john", what: "sets what each level allows" },
-    active: ["jphone"], paths: [], jHas: 1, jLinked: 1,
-    jscreen: [["h", "Trust levels"], ["row", "0", "Strangers · turned away"], ["row", "2", "Can message me"], ["row", "4", "Can schedule with me"], ["row", "6", "Can book and pay"], ["row", "9", "Family"], ["sp"], ["btn", "Save", "Saved ✓", "tap"]],
-    packets: [],
-    under: ["Only 0 (public) and 9 (highest) have fixed meanings; apps decide what 1 to 8 unlock (§6.1)", "Strangers get a flat no unless John turns on level-0 messages (§4.2, §6.4)", "Changes apply from then on; anything already agreed stays agreed (§6.2)"],
-    gap: "These labels are an example. The spec leaves the meaning of each level to the app, so every app will word this differently." },
-
-  { when: "Saturday 12:40 · on the street", t: "John meets Sarah and shares a handshake",
-    body: "They want coffee but neither wants to swap numbers. John taps Share, picks level 4, “can schedule”, for Sarah. His app remembers the level, but the handshake itself carries only his name and his hashi. It shows as a QR code. Sarah doesn't have HASHI yet, so she just points her phone camera at the code.",
-    decide: { who: "john", what: "picks level 4 for Sarah" },
-    active: ["jphone", "sphone"], paths: ["inperson"], jHas: 1, jLinked: 1,
+  { when: "Saturday 12:40 · on the street", t: "John shows Sarah a handshake",
+    body: "John and Sarah would like to get a coffee, and they want their agents to find the time. Each already has a hashi and an agent working from it. John taps Share and picks how much he trusts Sarah. That stays on his phone, and the handshake shows as a QR code.",
+    decide: { who: "john", what: "offers Sarah a handshake" },
+    active: ["jphone", "sphone"], paths: ["inperson"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1,
     jscreen: [["h", "Share a handshake"], ["lvl", "4 · can schedule", "tap"], ["qr"], ["n", "One-time · 48 hours"]],
-    sscreen: [["n", "Camera"], ["qr", "small"], ["n", "my.domain link"], ["btn", "Open"]],
-    packets: [{ path: "inperson", label: "link · handshake", who: "john" }],
-    under: ["The handshake names no level: John picks one when he confirms whoever accepts it (§6.2)", "It's an ordinary https link to John's page, shown as a QR code, so any camera opens it; the handshake rides in the fragment, so it never reaches a server log (§7.2)", "Signed by John's phone, one-time, expires in 48 hours (§7.1)"] },
+    sscreen: [["h", "Scan"], ["qr", "small"], ["n", "HASHI app"]],
+    packets: [{ path: "inperson", label: "handshake", who: "john" }] },
 
-  { when: "12:41 · Sarah's browser", t: "“Got a hashi?”",
-    body: "Sarah's camera opens John's page in her browser. It shows his name next to his hashi and asks one thing: got a hashi? She hasn't, so it points her to where she can get one. The page can't accept the handshake or start a chat, and nothing is recorded.",
-    active: ["sphone", "jserver"], paths: ["browse", "browseBack"], jHas: 1, jLinked: 1,
-    sscreen: [["n", "my.domain"], ["h", "Got a hashi?"], ["p", "John Doe"], ["m", "john#my.domain", "john"], ["sp"], ["btn2", "Open in app"], ["btn", "Get a hashi", "", "tap"]],
-    packets: [{ path: "browse", label: "open John's page", who: "sarah" }, { path: "browseBack", label: "“Got a hashi?”", who: "server" }],
-    under: ["Same URL as resolving John's hashi; a browser gets his page instead of his document (§7.2)", "The page must not accept handshakes, hold keys or offer chat (§7.2)", "Like email, she needs an address before anyone can reach her (§1.1, §10.3)"],
-    gap: "Where “Get a hashi” sends people (app stores, a list of providers) isn't defined." },
-
-  { when: "12:44 · Sarah's phone", t: "Sarah gets her own hashi",
-    body: "Sarah installs a HASHI app. She has no work server, so she picks a provider, example.org, and the name sarah. Face ID, and her keys are made just like John's were. Then she taps John's link again.",
-    decide: { who: "sarah", what: "picks a provider and a name" },
-    active: ["sphone", "sserver"], paths: ["spub"], jHas: 1, jLinked: 1, sHas: 1,
-    sscreen: [["h", "Get your hashi"], ["n", "Where should it live?"], ["opt", "○ a work server"], ["opt", "● example.org"], ["n", "Your name"], ["field", "sarah # example.org"], ["btn", "Create", "Done ✓", "tap"]],
-    packets: [{ path: "spub", label: "publish hashi document", who: "sarah" }],
-    under: ["Same as John: identity key backed up off the phone, device key in the secure chip (§5.2)", "Providers are interchangeable: anyone can run a HASHI server (§1.1)", "John's handshake still works as long as it's within its 48 hours (§10.3)"],
-    gap: "There's no way to find providers yet." },
-
-  { when: "12:45 · Sarah's phone", t: "Sarah checks it's really John, and accepts",
-    body: "Her app opens John's handshake, checks it was signed by John's own keys, and shows who it's from. Anyone could make a link that says “John Doe”, so she sees his hashi too. She never sees what level John gives her, and he never sees hers. “Offer one back” is on, so she picks a level for John, 2, “can suggest plans”, and taps Accept with Face ID.",
-    decide: { who: "sarah", what: "accepts John, and picks 2 for him" },
-    active: ["sphone", "jserver", "jphone"], paths: ["browse", "browseBack", "jnote"], jHas: 1, jLinked: 1, sHas: 1,
+  { when: "12:41 · Sarah's phone", t: "Sarah accepts, and sends one back",
+    body: "Sarah's app shows who the handshake is from: John's name and his hashi. She taps Accept, and because “Offer one back” is on, she picks how much she trusts John. Neither of them ever sees the level the other picks.",
+    decide: { who: "sarah", what: "accepts, and trusts John back" },
+    active: ["sphone", "jserver", "jphone"], paths: ["browse", "browseBack", "jnote"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1,
     sscreen: [["h", "John Doe"], ["m", "john#my.domain", "john"], ["n", "wants a handshake."], ["sp"], ["opt", "✓ Offer one back"], ["lvl", "2 · suggest plans"], ["btn", "Accept", "Sent ✓", "tap"], ["btn2", "Not now"]],
     jsrv: "Sarah · waiting for John",
-    packets: [{ path: "browse", label: "accept · one back", who: "sarah" }, { path: "browseBack", label: "waiting for John", who: "server" }, { path: "jnote", label: "something changed", who: "server" }],
-    under: ["Only a person accepts a handshake: her phone signs it after Face ID, and agents can't (§8.2)", "Nothing changes until John confirms her (§6.2)", "Until she saves John as a contact, her app shows his hashi next to his name (§3.4)"] },
+    packets: [{ path: "browse", label: "accept · one back", who: "sarah" }, { path: "browseBack", label: "waiting for John", who: "server" }, { path: "jnote", label: "Sarah accepted", who: "server" }] },
 
-  { when: "12:46 · John's phone", t: "John confirms, and they're connected both ways",
-    body: "John's phone shows Sarah in Incoming: she accepted his handshake and sent one back. His app suggests the 4 he picked earlier. One tap on Confirm lets her in and takes hers. Sarah's app sees that John took it and confirms him at the 2 she picked, without asking her again.",
-    decide: { who: "john", what: "confirms Sarah at level 4" },
-    active: ["jphone", "jserver", "sserver", "sphone"], paths: ["jpub", "jredeem", "snote", "spub"], jHas: 1, jLinked: 1, sHas: 1, tapAt: 0,
+  { when: "12:42 · John's phone", t: "John confirms, and it goes both ways",
+    body: "John's phone shows Sarah waiting. He taps Confirm, and the same tap takes the handshake she sent back. Sarah's app confirms John on its own. Now they trust each other both ways.",
+    decide: { who: "john", what: "confirms Sarah" },
+    active: ["jphone", "jserver", "sserver", "sphone"], paths: ["jpub", "jredeem", "snote", "spub"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1,
     jscreen: [["h", "Incoming"], ["p", "Sarah"], ["m", "sarah#example.org", "sarah"], ["n", "accepted your handshake"], ["n", "and sent one back."], ["sp"], ["lvl", "4 · can schedule"], ["btn", "Confirm", "Confirmed ✓", "tap"], ["btn2", "Decline"]],
-    sscreen: [["h", "John's in"], ["m", "john#my.domain", "john"], ["n", "took your handshake."], ["sp"], ["p", "level 2 · suggest plans"], ["n", "confirmed for you"]],
+    sscreen: [["h", "John's in"], ["m", "john#my.domain", "john"], ["sp"], ["n", "You trust each other"], ["n", "both ways now."]],
     jsrv: "Sarah → level 4", ssrv: "John → level 2",
-    packets: [{ path: "jpub", label: "confirm · level 4", who: "john" }, { path: "jredeem", label: "accept hers", who: "john" }, { path: "snote", label: "something changed", who: "server" }, { path: "spub", label: "confirm · level 2", who: "sarah" }],
-    under: ["Every acceptance waits for the owner to confirm it and pick the level (§8.7)", "Two grants, one on each server, each at the level that person chose; they belong to John and Sarah, not their phones (§6.2)", "Sarah's handshake back works once, so John can't reuse it after she lowers him (§8.2)", "If her phone had needed Face ID to sign, her confirm would wait until she next opened the app (§8.7)"] },
-
-  { when: "12:47 · Sarah's phone and agent", t: "Sarah links her agent and hands it the job",
-    body: "Sarah uses an assistant in the cloud. She links it the same way John did, up to level 5, and sets her own levels. Then she tells it: “Find a time for coffee with John this week.” She puts her phone away. From here the agents do the work.",
-    decide: { who: "sarah", what: "lets her agent act for her, up to level 5" },
-    active: ["sphone", "sagent", "sserver"], paths: ["spair", "spub"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1, tapAt: 1,
-    sscreen: [["h", "Link an agent"], ["p", "“Sarah's assistant”"], ["n", "wants to act for you."], ["sp"], ["n", "Up to level"], ["lvl", "◀  5  ▶"], ["btn", "Allow", "Linked ✓", "tap"], ["btn2", "Not now"]],
-    sag: "task: coffee with John",
-    packets: [{ path: "spair", label: "link · agent's public keys", who: "sarah" }, { path: "spub", label: "publish · agent added", who: "sarah" }],
-    under: ["Sarah's grant at John's belongs to Sarah, so any agent she links can use it (§6.2)", "Her agent's messages count at the lower of her grant and its own limit: min(4, 5) = 4 (§6.3)"],
-    gap: "Pairing is agreed but not written into the spec yet (see step 3)." },
+    packets: [{ path: "jpub", label: "confirm", who: "john" }, { path: "jredeem", label: "accept hers", who: "john" }, { path: "snote", label: "John accepted", who: "server" }, { path: "spub", label: "confirm", who: "sarah" }] },
 
   { when: "19:05 · the agents", t: "Sarah's agent writes to John's",
-    body: "That evening Sarah's agent writes to John's, sealed so only John and his agents can read it. John's server checks Sarah is at level 4, stamps the message with that and holds it. John is out to dinner. Nothing buzzes, and nothing needs him.",
+    body: "That evening Sarah's agent gets on with it and writes to John's agent about coffee. The message is sealed, so only John's agents can read it. John's server stamps it with Sarah's trust level and holds it until John's agent comes online. John is out to dinner, and nothing needs him.",
     active: ["sagent", "jserver"], paths: ["sToJ"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1, jAsleep: 1,
     jscreen: [["clock", "19:05"], ["sp"], ["n", "Locked · no alerts"]],
     jsrv: "inbox: 1 from Sarah", sag: "sent · will check back", jag: "offline",
-    packets: [{ path: "sToJ", label: "sealed · schedule", who: "sarah" }],
-    under: ["Sealed to John's inbox key, which each of his agents holds a copy of; his server can read who and how trusted, not what (§9.1)", "Stamped with Sarah's level, 4, and queued until an agent of John's comes online (§8.3, §9.2)", "It carries a reply token, so John's agent can answer on this thread (§9.4)"] },
+    packets: [{ path: "sToJ", label: "sealed · coffee?", who: "sarah" }] },
 
-  { when: "21:30 · John's agent", t: "John's agent handles it, because John already said it could",
-    body: "When John's agent next checks his inbox, it picks the message up and sees it's from Sarah at level 4. John said level 4 means “can schedule”, so it doesn't ask him. It checks his calendar and offers Thursday at 8. The agents go back and forth through each other's inboxes until they agree.",
-    active: ["jagent", "jserver", "sserver", "sagent"], paths: ["jcheck", "jdeliver", "jToS", "sdeliver"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1, jAsleep: 1,
-    jscreen: [["clock", "21:30"], ["sp"], ["n", "Locked · no alerts"]],
-    jag: "level 4 → can schedule", sag: "agreed · Thu 8:00", ssrv: "inbox: reply from John",
-    packets: [{ path: "jcheck", label: "check inbox", who: "john" }, { path: "jdeliver", label: "Sarah · level 4", who: "server" }, { path: "jToS", label: "Thu 8:00?", who: "john" }, { path: "sdeliver", label: "reply from John", who: "server" }],
-    under: ["Agents only ever connect out to their own server; nobody reaches into a phone or laptop (§1.1)", "The first agent to claim a message gets it, so John's other agents leave it alone (§8.4)", "John's reply goes to Sarah's server on the same thread and is stamped at 2, his level with her (§9.3, §9.4)"] },
-
-  { when: "Sunday morning", t: "They both just see the result",
-    body: "John and Sarah each get one note from their own agent: coffee, Thursday at 8. Neither swapped a number or saw the back and forth, and either can open the thread to read it.",
-    active: ["jphone", "sphone"], paths: [], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1,
-    jscreen: [["h", "Coffee booked"], ["p", "with Sarah"], ["m", "sarah#example.org", "sarah"], ["p", "Thursday · 8:00"], ["n", "arranged by your agent"], ["sp"], ["btn2", "View thread"]],
-    sscreen: [["h", "Coffee booked"], ["p", "with John Doe"], ["m", "john#my.domain", "john"], ["p", "Thursday · 8:00"], ["n", "arranged by your agent"], ["sp"], ["btn2", "View thread"]],
-    jag: "done · Thu 8:00", sag: "done · Thu 8:00",
-    packets: [],
-    under: ["How an agent tells its owner is up to the app and the agent, not HASHI (§1.2)", "The servers deleted nothing they could read: they never saw a word (§1.1)"] },
-
-  { when: "the week after", t: "John's agent suggests dinner, and Sarah says yes",
-    body: "John asks his agent to set up dinner. It writes to Sarah's agent at level 2, the level Sarah picked for him when she accepted. She said level 2 means John may suggest plans but she says yes herself, so her agent asks her. One tap and it's booked.",
-    decide: { who: "sarah", what: "says yes to dinner" },
-    active: ["jagent", "sserver", "sagent", "sphone", "jserver"], paths: ["jToS", "sdeliver", "sask", "sToJ"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1, tapAt: 3,
-    sscreen: [["h", "Dinner with John?"], ["p", "Friday · 7:30"], ["p", "Luca, Clerkenwell"], ["n", "suggested by"], ["m", "john#my.domain", "john"], ["sp"], ["btn", "Yes", "Booked ✓", "tap"], ["btn2", "Not now"]],
-    jag: "booked · Fri 7:30", sag: "level 2 → ask Sarah",
-    packets: [{ path: "jToS", label: "dinner Friday?", who: "john" }, { path: "sdeliver", label: "from John · level 2", who: "server" }, { path: "sask", label: "ask Sarah", who: "sarah" }, { path: "sToJ", label: "yes · booked", who: "sarah" }],
-    under: ["Sarah's server stamps John's message at level 2; her agent reads the stamp, not John's say-so (§9.2)", "“Ask me first” is Sarah's own rule for level 2, kept in her app (§6.1)", "Booking the restaurant is the agents' business, outside HASHI (§1.2)"] },
+  { when: "21:30 · the agents", t: "The agents sort it out",
+    body: "John's agent picks the message up and sees Sarah's trust level, which lets her schedule with John. It checks his calendar and knows he likes coffee in the morning, so it offers Thursday at 8. Sarah's agent checks her calendar and agrees. Nobody was asked, and John and Sarah just see it booked.",
+    active: ["jagent", "jserver", "sserver", "sagent", "jphone", "sphone"], paths: ["jcheck", "jdeliver", "jToS", "sdeliver"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1,
+    jscreen: [["h", "Coffee booked"], ["p", "with Sarah"], ["m", "sarah#example.org", "sarah"], ["p", "Thursday · 8:00"], ["n", "arranged by your agent"]],
+    sscreen: [["h", "Coffee booked"], ["p", "with John Doe"], ["m", "john#my.domain", "john"], ["p", "Thursday · 8:00"], ["n", "arranged by your agent"]],
+    jag: "mornings → Thu 8:00", sag: "agreed · Thu 8:00", ssrv: "inbox: reply from John",
+    packets: [{ path: "jcheck", label: "check inbox", who: "john" }, { path: "jdeliver", label: "Sarah · level 4", who: "server" }, { path: "jToS", label: "Thu 8:00?", who: "john" }, { path: "sdeliver", label: "Thu 8:00 works", who: "server" }] },
 
   { when: "whenever they choose", t: "Either of them can step back",
-    body: "Trust stays in their hands. If John ever drops Sarah to 0, her agent's next message gets a plain no, with no reason, exactly like a stranger's would. Anything already agreed stays agreed. Nobody has to block a phone number.",
+    body: "Trust stays in their hands. If John ever drops Sarah to 0, her agent's next message gets a plain no, the same answer a stranger gets. Anything already agreed stays agreed.",
     decide: { who: "john", what: "lowers Sarah to 0" },
     active: ["jphone", "jserver", "sagent"], paths: ["jpub", "sToJ"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1,
     jscreen: [["h", "Sarah"], ["m", "sarah#example.org", "sarah"], ["sp"], ["n", "Her level"], ["lvl", "◀  4 → 0  ▶"], ["n", "Can no longer reach you."], ["btn", "Save", "Saved ✓", "tap"]],
     jsrv: "Sarah → level 0", sag: "got: no",
-    packets: [{ path: "jpub", label: "lower Sarah to 0", who: "john" }, { path: "sToJ", label: "message", who: "sarah" }, { path: "sToJ", label: "nah", who: "server", far: 1 }],
-    under: ["Lowering is instant and one-sided; the next message is stamped at the new level (§6.2, §6.3)", "The no looks the same whatever the reason, so Sarah can't tell she's been singled out (§6.4)", "Raising it again would need a new handshake and John's confirm (§6.2)"] }
+    packets: [{ path: "jpub", label: "lower Sarah to 0", who: "john" }, { path: "sToJ", label: "message", who: "sarah" }, { path: "sToJ", label: "nah", who: "server", far: 1 }] }
 ];
 
 /* ---------- helpers ---------- */
@@ -503,10 +406,6 @@ function applyState(i) {
   const dec = $("decision");
   dec.hidden = !st.decide;
   if (st.decide) { $("decWho").textContent = (st.decide.who === "john" ? "John" : "Sarah") + " decides"; $("decWhat").textContent = st.decide.what; }
-  const ul = $("under"); ul.innerHTML = "";
-  (st.under || []).forEach((c, k) => { const li = document.createElement("li"); li.textContent = c; li.style.animationDelay = (0.3 + k * 0.2) + "s"; ul.appendChild(li); });
-  $("gap").hidden = !st.gap;
-  $("gapText").textContent = st.gap || "";
   [...$("dots").children].forEach((d, k) => { d.classList.toggle("cur", k === i); d.classList.toggle("done", k < i); d.setAttribute("aria-current", k === i ? "step" : "false"); });
 }
 
