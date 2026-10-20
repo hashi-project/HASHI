@@ -44,7 +44,7 @@ The answer is one of:
 
 | Result | Meaning |
 |--------|---------|
-| `yeah` | Stamped and queued. Says nothing about when an agent will act on it. |
+| `yea` | Stamped and queued. Says nothing about when an agent will act on it. |
 | `nah` | Not accepted. No reason given. |
 
 ## Stamp

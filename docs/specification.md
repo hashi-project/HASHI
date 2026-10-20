@@ -722,12 +722,12 @@ The whole request **MUST NOT** exceed 64 KiB.
 
 | HTTP status | `result` | Meaning |
 |-------------|----------|---------|
-| 202 | `yeah` | Stamped and queued. This says nothing about whether, or when, an agent will act on it. |
+| 202 | `yea` | Stamped and queued. This says nothing about whether, or when, an agent will act on it. |
 | 403 | `nah` | Not accepted. No reason need be given. |
 
 ```json
 {
-  "result": "yeah",
+  "result": "yea",
   "id": "msg_5e1..."
 }
 ```
@@ -1089,7 +1089,7 @@ Agents that can reach each other directly **MAY** agree, inside their messages, 
 
 1. John's phone shows a QR code for `https://my.domain/.well-known/hashi/john` with an offer in the fragment: one-time, 48-hour expiry, display name "John Doe", note "coffee". John has level 4 in mind, which his app remembers but the offer doesn't carry.
 2. Sarah scans it with her HASHI app, or with her camera and taps "Open in app" on John's page. The app shows *John Doe · john#my.domain*, resolves the hashi and checks the chain from John's HID to the device that signed the offer. Sarah taps Accept, leaving "offer one back" on with level 2 in mind for John. Her app redeems the offer as `sarah#example.org`, signed with its device delegation, and sends an offer of her own as `offer_back`. John's server holds her acceptance and wakes John's phone, which shows that `sarah#example.org` accepted the coffee offer and sent one back. His app suggests level 4 and John taps Confirm. His server records Sarah at level 4, and the same tap redeems Sarah's offer at her server. Her app sees that John redeemed it and confirms him at level 2 without asking her again.
-3. That evening her agent sends John a message with `intent: "schedule"` and a new thread, sealed to John's inbox key, and offers John a reply token. John's server checks her signature and grant, stamps the message at level 4 and queues it. Her agent gets `yeah` and goes back to sleep.
+3. That evening her agent sends John a message with `intent: "schedule"` and a new thread, sealed to John's inbox key, and offers John a reply token. John's server checks her signature and grant, stamps the message at level 4 and queues it. Her agent gets `yea` and goes back to sleep.
 4. Later, John's laptop agent comes online, or is woken by a push. It lists the inbox, sees a scheduling message, claims it, checks the stamp and Sarah's signature, and opens it.
 5. It replies to Sarah's server on the same thread, sealed to Sarah's inbox key, presenting Sarah's reply token. John has level 2 from Sarah, so the reply goes in at level 2.
 6. Sarah's agent finds the reply by its thread. The agents go back and forth until a time is agreed, then delete the messages.

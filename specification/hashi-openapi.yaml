@@ -234,7 +234,7 @@ paths:
               $ref: '#/components/schemas/SendRequest'
       responses:
         '202':
-          description: "yeah: stamped and queued."
+          description: "yea: stamped and queued."
           content:
             application/hashi+json:
               schema:
@@ -1219,7 +1219,7 @@ components:
       required: [result, id]
       properties:
         result:
-          const: 'yeah'
+          const: 'yea'
         id:
           type: string
           description: Inbox message ID.
