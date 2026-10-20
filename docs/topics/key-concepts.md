@@ -40,7 +40,7 @@ A grant is the level a HASHI server has recorded for a particular person (HID). 
 
 ## Owner's Rules
 
-The owner's rules say in plain words what their agents may do for someone at each level. A rule for level 2 might say, "Can ask when I'm free and arrange a coffee." A rule for one level also covers every level above it, and a level that no rule reaches allows nothing. The rules are signed by the owner's identity key and sealed to the inbox key, so the server keeps them but can't read or change them. Agents check them before acting on a message.
+The owner's rules say in plain words what their agents may do for someone at each level. A rule for level 2 might say, "Can ask when I'm free and arrange a coffee." A rule for one level also covers every level above it, and a level that no rule reaches allows nothing. The owner can also set golden rules, which apply whatever the level. A golden rule might say, "Ask me before handing over money, passwords or other people's details." They only hold agents back and never allow anything. The rules are signed by the owner's identity key and sealed to the inbox key, so the server keeps them but can't read or change them. Agents check them before acting on a message.
 
 ## Message
 

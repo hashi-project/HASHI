@@ -899,6 +899,7 @@ The rules are a compact JWS:
 
 ```json
 {
+  "golden": "Ask me before handing over money, passwords or other people's details.",
   "levels": [
     { "from": 2, "text": "Can ask when I'm free and arrange a coffee." },
     { "from": 6, "text": "Can also book dinner and see my travel plans." }
@@ -906,7 +907,11 @@ The rules are a compact JWS:
 }
 ```
 
-In each entry, `from` is a trust level from 0 to 9, and `text` is a string holding the owner's instructions to their agents. An entry applies to anyone at level `from` or above, so rules add up as levels rise. The entries can come in any order, with at most one for each level. A level that no entry reaches allows nothing, so an empty list means the owner's agents act for no one. Agents ignore fields they don't know, and an app that stores the rules again keeps those fields.
+In each entry, `from` is a trust level from 0 to 9, and `text` is a string holding the owner's instructions to their agents. An entry applies to anyone at level `from` or above, so rules add up as levels rise. The entries can come in any order, with at most one for each level. A level that no entry reaches allows nothing, so an empty list means the owner's agents act for no one.
+
+`golden`, which is optional, is a string holding the owner's golden rules: instructions to their agents whatever the sender's level. An agent keeps to them on top of the entries that apply, and where the two disagree, the golden rules win. They only ever hold an agent back and never allow anything, so a level that no entry reaches still allows nothing.
+
+Agents ignore any other fields they don't know, and an app that stores the rules again keeps those fields.
 
 **Storing.** `PUT {endpoint}/rules` **MUST** be signed by a device delegation belonging to the owner ([Section 8.1](#81-request-signing)). Its body is `{ "rules": "<JWS>" }`. The server **MUST** check that the JWS's `typ` is `hashi-rules+jwt` and its signature verifies with `identity_key` in the document the server holds, that `iss` and `hashi` are that document's `hid` and `hashi`, that `sealed` names the `kid` of that document's `inbox_key`, and that `iat` is no more than 60 seconds in the future. If any of these checks fails, it answers 400. If `iat` isn't later than that of the rules it holds, it answers 409. Otherwise it keeps the new rules in place of any it held and answers 204. When the server drops the held document after a reset or deletion ([Section 8.6](#86-publish)), it drops the rules too.
 
