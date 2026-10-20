@@ -18,40 +18,47 @@ A **hashi** looks like `john#my.domain`. You hand it out the way you'd hand out 
 
 ## Why HASHI?
 
-Agent protocols like A2A define how agents talk to each other. They don't define:
+The early internet was designed to be open. Anyone could run a mail server or a website, and the address told you where to go. Today most of how we reach each other runs through a reducing number of companies, away from the original open design and into products.
 
-- how a person gives their agents an address others can use;
-- how that person decides who may reach them, and with how much trust; or
-- how trust formed between two people, say on meeting in the street, carries across to their agents; or
-- how a message reaches an agent that's offline or can't be reached from the internet.
+AI agents are about to do a lot of stuff on our behalf. HASHI puts control of that back with people. You hold the address, you decide who gets through and how far, and any server or app that follows the spec can take part.
 
-HASHI fills that gap. It's the address book, the front door and the letterbox.
+Agent protocols like A2A cover how agents talk to each other. They don't cover how you give your agents an address, how you decide who can reach them, or how a message gets to an agent on a laptop that's asleep half the day. That's the gap HASHI fills.
+
+## How the Network Fits Together
+
+The part after the `#` is a domain name. To reach `john#my.domain`, an app looks up `my.domain` in DNS like any other website, then asks that domain's HASHI server for John's details at `https://my.domain/.well-known/hashi/john`. Email works the same way: the domain decides which server handles its mail.
+
+So you can run a server on your own domain, or get a hashi from someone who already runs one, like myhashi.org. One domain can hold as many hashis as it likes, so nobody needs a DNS record of their own.
 
 ## Key Features
 
 - **Directional trust levels from 0 to 9.** Level 0 is public, 9 is highest, and what 1 to 8 unlock is up to the owner's software.
-- **Signed offers.** A QR code or link invites someone in, up to a trust level you choose.
+- **Signed offers.** A QR code or link invites someone in. You choose their trust level when you confirm them, and their app normally offers one back, so you're connected both ways.
 - **Relationships outlast the tech.** Agents, devices, keys and providers can all change without breaking a relationship.
 - **Agents only connect out.** Nobody needs to reach into a phone or laptop. Agents pick messages up from their own HASHI server.
-- **Plain web standards.** HTTPS, standard JOSE signatures and encryption, and no per-user DNS.
+- **Plain web standards.** HTTPS and standard JOSE signatures and encryption.
 
 ## How It Works
 
-1. John shows Sarah a QR code containing a signed **offer** at trust level 4.
-2. Sarah's HASHI app **redeems** it. John's server records a **grant** for Sarah's identity.
+1. John shows Sarah a QR code containing a signed **offer**.
+2. Sarah's HASHI app **redeems** it and sends an offer of her own back. When John confirms her on his phone and picks level 4, his server records a **grant** for Sarah's identity, and the same tap redeems her offer, so they're connected both ways.
 3. Later, Sarah's agent **sends** John a sealed message. John's server checks her identity and grant, **stamps** it at level 4 and queues it in John's **inbox**.
 4. John's agent comes online, picks the message up and replies to Sarah's server on the same thread. If both agents can reach each other directly, they can agree to carry on over [A2A](https://a2a-protocol.org) or another protocol.
 
 ## Get Started
 
-- 📖 Read the [Specification](docs/specification.md).
-- 🧭 Start with [What is HASHI?](docs/topics/what-is-hashi.md) and [Key Concepts](docs/topics/key-concepts.md).
-- 🔌 See the HTTP API in [`specification/hashi-openapi.yaml`](specification/hashi-openapi.yaml).
-- 🗺️ Check the [Roadmap](docs/roadmap.md) for open questions.
+**Try it.** [myhashi.org](https://myhashi.org) is in closed beta testing. If you'd like to take part, get in touch by [opening an issue](https://github.com/hashi-project/HASHI/issues).
+
+**Read the spec.**
+
+- [Specification](docs/specification.md)
+- [What is HASHI?](docs/topics/what-is-hashi.md) and [Key Concepts](docs/topics/key-concepts.md)
+- The HTTP API in [`specification/hashi-openapi.yaml`](specification/hashi-openapi.yaml)
+- Open questions on the [Roadmap](docs/roadmap.md)
 
 ## Status
 
-Version **0.1**, draft, experimental. Expect breaking changes.
+Version **0.1** of the spec is published. myhashi.org and the phone app are in closed beta testing. It's all still experimental, so expect breaking changes.
 
 ## Contributing
 
