@@ -392,7 +392,7 @@ Device and agent keys are authorised by a delegation: a compact JWS signed by th
   "hashi": "john#my.domain",
   "cnf": { "jwk": { "kty": "EC", "crv": "P-256", "x": "...", "y": "..." } },
   "enc": { "kty": "EC", "crv": "P-256", "x": "...", "y": "...", "use": "enc" },
-  "max_lvl": 6,
+  "max_lvl": 9,
   "epoch": 3,
   "iat": 1791270000,
   "exp": 1793862000,
@@ -407,7 +407,7 @@ Device and agent keys are authorised by a delegation: a compact JWS signed by th
 | `hashi` | string | Yes | The owner's hashi. |
 | `cnf.jwk` | JWK | Yes | The delegated signing public key. |
 | `enc` | JWK | Agent only | The agent's encryption public key ([Section 5.1](#51-algorithms)). Required for role `agent`. |
-| `max_lvl` | integer | Yes | Agent: highest level it may act at. Device: highest level it may raise a grant to. |
+| `max_lvl` | integer | Yes | Device: highest level it may raise a grant to. Agent: always 9, and ignored. An agent speaks for its owner at whatever level the recipient gave the owner ([Section 6.3](#63-effective-level)). The field stays so older verifiers still accept agent delegations. |
 | `epoch` | integer | Yes | The owner's epoch at issue. |
 | `iat`, `exp` | integer | Yes | `exp` **MUST NOT** be more than 90 days after `iat`. Device delegations **SHOULD** be short-lived (for example 30 days). |
 | `jti` | string | Yes | Unique ID, used for revocation. |
@@ -474,10 +474,7 @@ Only 0 and 9 have protocol-defined meanings. Implementations decide what 1 to 8 
 
 ### 6.3 Effective Level
 
-When a message arrives, the effective level is the **lower** of:
-
-- the level the server currently records for the sender (0 if none); and
-- the sender's agent delegation `max_lvl`.
+When a message arrives, the effective level is the level the server currently records for the sender (0 if none). Which of the sender's agents sent it makes no difference: every agent the owner pairs speaks for them in full. A server **MUST NOT** lower the level because of the sending agent's `max_lvl`.
 
 Lowering a grant therefore takes effect at the very next message. A reply token ([Section 9.4](#94-reply-tokens)) lets a reply through but never raises its level.
 
@@ -1178,7 +1175,7 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 | **Takeover through the sign-up account** | Getting into the email or other account someone signed up with doesn't let anyone publish, read their inbox or change their grants, because those need the owner's keys. A reset or deletion started from that account shows in the hashi's `fresh` statement for at least 7 days, and any publish from the owner's key cancels it ([Section 8.6](#86-publish)). |
 | **Minting offers for someone else's hashi** | Offers must chain to the HID of the hashi they name ([Section 7.1](#71-the-offer-token)). |
 | **Impersonation by display name or picture** | Display names and pictures are claims, not identity, and a company's logo is the first thing an impersonator would copy. Only the hashi's domain shows which organisation it belongs to. Clients show the hashi until a relationship exists, load pictures only after one, and prefer the user's own contact names. |
-| **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list, `max_lvl` and role checks. A rotation invalidates all earlier delegations. Every agent holds the inbox key, which can't stay in hardware the way an agent's own keys can. So one stolen copy, or an agent paired by mistake, opens every message still waiting and every new one until the key changes, which is why removing an agent quickly matters. |
+| **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list and role checks, and for device keys by `max_lvl`. A stolen agent key speaks for the owner at every level others have given them until it's revoked or expires. A rotation invalidates all earlier delegations. Every agent holds the inbox key, which can't stay in hardware the way an agent's own keys can. So one stolen copy, or an agent paired by mistake, opens every message still waiting and every new one until the key changes, which is why removing an agent quickly matters. |
 | **Prompt injection** | Message bodies are untrusted input at every level and **MUST NOT** be given to a language model as instructions. Outside the envelope, the only free text from other people is the display name and the offer note, both untrusted display metadata. The owner's rules are the one text agents take as instructions, and only once they have checked that the owner's identity key signed them ([Section 8.8](#88-owners-rules)). Pictures are untrusted in the same way, since an image can carry text aimed at a model. Intents are constrained tokens. High trust says *who* sent a message, not that what it says is safe to act on. Agents can't redeem offers, so an offer planted in a message or on a web page can't trick one into accepting it ([Section 8.2](#82-redeem)). |
 | **Server-side request forgery** | See [Section 11](#11-network-security). |
 | **Clock skew** | Verifiers **SHOULD** allow up to 60 seconds on `iat`, `exp` and `created`. |
