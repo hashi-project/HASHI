@@ -210,10 +210,12 @@ paths:
       summary: Ask whether the owner has confirmed you. One of the redeemer's devices only; never says the level.
       description: |
         confirmed is true if the owner records a level of 1 or more for the
-        caller's HID and hasn't refused it. It is false alike while the
-        acceptance is pending, after a decline, once it was dropped after 30
-        days, if none was made and if the HID is refused (specification
-        Section 8.2). The answer is a display hint and isn't signed.
+        caller's HID and hasn't refused it. For a caller without a level it
+        is false alike while the acceptance is pending, after a decline, once
+        it was dropped after 30 days, if none was made and if the HID is
+        refused. A caller who already holds a level stays true while a later
+        acceptance waits (specification Section 8.2). The answer is a display
+        hint and isn't signed.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
