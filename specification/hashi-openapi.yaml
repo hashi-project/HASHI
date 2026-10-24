@@ -460,11 +460,15 @@ paths:
           $ref: '#/components/responses/Forbidden'
     put:
       operationId: registerWakeChannel
-      summary: OPTIONAL. Register a wake-up channel for the calling agent.
+      summary: OPTIONAL. Register a wake-up channel for the calling agent or owner's app.
       description: |
+        Signed by an agent delegation, or by a device delegation for the owner's
+        app. One registration per delegation; registering again replaces it.
         Wake-up notices say only that the inbox or grants changed. They MUST NOT carry
-        any part of a message, its stamp or its sender. For webpush, params
-        is the agent's push subscription and the push message body is empty.
+        any part of a message, its stamp or its sender. A server MAY wake an app
+        only when an acceptance starts waiting, and a notice to an app MAY say that
+        one is waiting, but never who accepted, which offer or any level. For
+        webpush, params is the push subscription and the push message body is empty.
       parameters:
         - $ref: '#/components/parameters/SignatureInput'
         - $ref: '#/components/parameters/Signature'
@@ -1357,7 +1361,7 @@ components:
           type: string
         params:
           type: object
-          description: Channel-specific. For webpush, the agent's push subscription.
+          description: Channel-specific. For webpush, the agent's or app's push subscription.
 
     Error:
       type: object

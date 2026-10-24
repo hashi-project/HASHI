@@ -614,7 +614,7 @@ All operations are HTTPS requests to the `endpoint` from the relevant hashi docu
 | Claim | `POST {endpoint}/inbox/{id}/claim` | The owner's agents | Move a message from incoming to processing. |
 | Release | `POST {endpoint}/inbox/{id}/release` | The claiming agent, or a device | Put a message back in incoming. |
 | Delete | `DELETE {endpoint}/inbox/{id}` | The claiming agent, or a device | Remove a message. |
-| Wake | `GET` and `PUT {endpoint}/inbox/wake` | The owner's agents | See and register wake-up channels ([Section 8.5](#85-waking-agents)). |
+| Wake | `GET` and `PUT {endpoint}/inbox/wake` | The owner's agents and apps | See and register wake-up channels ([Section 8.5](#85-waking-agents)). |
 | Publish | `PUT {endpoint}/document` | The owner's app | Store a new version of the owner's hashi document ([Section 8.6](#86-publish)). |
 | List grants | `GET {endpoint}/grants` | The owner's agents and devices | See who the owner has granted a level to or refused, and any acceptances waiting for the owner ([Section 8.7](#87-grants)). |
 | Change grant | `PUT {endpoint}/grants/{hid}` | The owner's devices | Confirm, lower or remove a grant, or refuse a HID ([Section 8.7](#87-grants)). |
@@ -801,14 +801,16 @@ The server doesn't route. Every one of the owner's agents sees the same inbox, a
 
 ### 8.5 Waking Agents
 
-An agent that is online subscribes to its inbox. Whenever something is added, or an acceptance starts waiting for the owner ([Section 8.7](#87-grants)), the server tells it so. That notice says only that something changed. It **MUST NOT** carry any part of a message, its stamp or its sender, so the notice needs no security of its own and is never trusted. On getting one, the agent lists its inbox over the signed API, and the owner's app lists grants too.
+An agent that is online subscribes to its inbox. Whenever something is added, or an acceptance starts waiting for the owner ([Section 8.7](#87-grants)), the server tells it so. That notice says only that something changed. It **MUST NOT** carry any part of a message, its stamp or its sender, so the notice needs no security of its own and is never trusted. On getting one, the agent lists its inbox over the signed API.
+
+The owner's app subscribes the same way, signing with its device delegation, so the owner hears when someone has accepted an offer and is waiting for them to confirm. A server **MAY** wake an app only when an acceptance starts waiting, and not for messages, which are for agents. A notice to an app **MAY** say that an acceptance is waiting, so the phone can show it to the owner, but **MUST NOT** say who accepted, which offer it was or any level. On getting one, or when the owner opens it, the app lists grants. Answering still needs the owner's device signature ([Section 8.7](#87-grants)), so a notice can lead the owner to the confirmation but can't answer it.
 
 How the notice travels is not fixed by this specification:
 
 - **Listing is the baseline.** Every server and agent **MUST** support List, so polling always works between any app and any server.
-- **Wake-up channels are optional.** `GET {endpoint}/inbox/wake` returns the channels the server supports, for example `["webpush"]`. An agent registers one it also supports with `PUT {endpoint}/inbox/wake`, giving `{ "channel": ..., "params": { ... } }`. Channels such as Web Push (RFC 8030), Server-Sent Events, WebSocket or a platform push service are defined separately and **MAY** be added without changing this protocol.
+- **Wake-up channels are optional.** `GET {endpoint}/inbox/wake` returns the channels the server supports, for example `["webpush"]`. An agent, or the owner's app, registers one it also supports with `PUT {endpoint}/inbox/wake`, giving `{ "channel": ..., "params": { ... } }`. Channels such as Web Push (RFC 8030), Server-Sent Events, WebSocket or a platform push service are defined separately and **MAY** be added without changing this protocol.
 
-For `webpush`, `params` is the agent's push subscription, and the push message **MUST** have an empty body.
+Each agent or app has one registration, and registering again replaces it. It lasts no longer than the delegation that signed it. For `webpush`, `params` is the push subscription, and the push message **MUST** have an empty body.
 
 ### 8.6 Publish
 
@@ -1189,7 +1191,7 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 - **Opening a stranger's message can track.** The agent resolves the sender's hashi to check it ([Section 9.1](#91-the-envelope)), which tells the sender's domain when, and from what address. Agents **MAY** leave strangers' messages unopened until the owner's rules call for them.
 - **Pictures can track.** Loading someone's picture tells whoever hosts it that someone is looking, and when, so clients load pictures only for people the user already knows ([Section 3.5](#35-pictures)).
 - **Sealed, not read.** The HASHI server sees who sends to whom, when, the intent, the thread and the size. It never sees message content. Servers **SHOULD** keep that metadata no longer than the messages themselves.
-- **Wake-ups say nothing.** A wake-up notice carries no part of a message, so push services learn only that something changed.
+- **Wake-ups say nothing.** A wake-up notice carries no part of a message, so push services learn only that something changed. A notice to the owner's app may say that someone accepted an offer, never who ([Section 8.5](#85-waking-agents)).
 - **A `nah` is just a `nah`.** It carries no reason, and a per-HID refusal looks the same as any other ([Section 6.4](#64-zero-is-zero)).
 - **Offers carry only the issuer's own details.** They name no level, and nothing in the protocol tells a redeemer the level the owner confirmed. A redeemer can ask only whether they've been confirmed ([Section 8.2](#82-redeem)), which a send would show them anyway, and a decline looks the same as waiting.
 - **Domain hashis reveal affiliation.** `john#my.domain` tells people where John works. For personal use, a hashi on a provider's domain gives more privacy.
