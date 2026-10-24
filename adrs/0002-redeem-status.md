@@ -27,7 +27,7 @@ That left the redeemer's app guessing. In testing, an app showed "you can reach 
 
 **Why the level stays hidden.** A level means something only to the owner's own agents ([Section 6.2](../docs/specification.md#62-rules), rule 3). Telling someone "you're a 2, not a 4" invites them to ask why, or to sound someone out by how they're ranked. That's why offers name no level and the specification says nothing tells a redeemer the level ([Section 13](../docs/specification.md#13-privacy-and-safety)). Whether the level is at least 1 is different: a full-size send already succeeds only from level 1 up and gets `nah` below it ([Section 8.3](../docs/specification.md#83-send)), so anyone can find it out by sending. The status adds nothing to what the redeemer could already learn. It only saves them from having to send something to find out.
 
-**Why a decline looks like waiting.** A decline, a refusal and an acceptance dropped after 30 days all answer `false`, just like one still waiting. That keeps "a `nah` is just a `nah`" ([Section 6.4](../docs/specification.md#64-zero-is-zero)): the owner can ignore or decline someone without the app telling them so straight away, and a refused HID can't tell it was singled out. The redeemer's app shows "waiting" until 30 days pass, then "not confirmed".
+**Why a decline looks like waiting.** For someone who holds no level, a decline, a refusal and an acceptance dropped after 30 days all answer `false`, just like one still waiting. Someone who already holds a level is `true` throughout, since they can already reach the owner. That keeps "a `nah` is just a `nah`" ([Section 6.4](../docs/specification.md#64-zero-is-zero)): the owner can ignore or decline someone without the app telling them so straight away, and a refused HID can't tell it was singled out. The redeemer's app shows "waiting" until 30 days pass, then "not confirmed".
 
 **Why it isn't signed.** It only decides whether the app shows a tick. A server that lied could equally answer `yea` to sends, so a signature would protect nothing that matters. HTTPS to the owner's endpoint is enough.
 
@@ -43,7 +43,7 @@ That left the redeemer's app guessing. In testing, an app showed "you can reach 
 ### Negative
 
 - It's a poll. The app learns of a confirmation only when it next asks (on unlock or refresh, at most about hourly per acceptance), not the moment it happens.
-- Asking discloses something to the owner's server: until the redeemer is confirmed, for up to 30 days, it sees roughly when the redeemer's app is in use, and from what address, even after a decline. That's why apps ask at most about hourly, count failed asks too, and stop as soon as they know. Section 13 says so.
+- Asking discloses something to the owner's server: until the redeemer is confirmed, for up to 37 days after accepting (30 days, then a week in which a last answer is sought so a late confirmation isn't missed), it sees roughly when the redeemer's app is in use, and from what address, even after a decline. That's why apps ask at most about hourly, count failed asks too, and stop as soon as they know. Section 13 says so.
 - One more call for servers to rate-limit.
 - A decline keeps showing as waiting for up to 30 days.
 
