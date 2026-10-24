@@ -419,7 +419,7 @@ A verifier **MUST** reject a delegation that:
 - is not signed by the current identity key; or
 - has an `epoch` lower than that of the most recent rotation. (A rotation therefore kills every earlier delegation, including any minted with a stolen key.)
 
-Verifiers **MUST** also check `role`: offers and redeems **MUST** be signed by a `device` delegation ([Section 8.2](#82-redeem)); messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages, listing grants and fetching the owner's rules **MAY** be signed by either role ([Section 8.4](#84-the-inbox), [Section 8.7](#87-grants), [Section 8.8](#88-owners-rules)). Storing an offer ([Section 7.3](#73-short-links)), a picture ([Section 3.5](#35-pictures)) or the owner's rules, confirming or lowering a grant, or refusing a HID, **MUST** be signed by a `device` delegation.
+Verifiers **MUST** also check `role`: offers, redeems and redeem status requests **MUST** be signed by a `device` delegation ([Section 8.2](#82-redeem)); messages, reply tokens and inbox claims **MUST** be signed by an `agent` delegation. Listing, releasing and deleting inbox messages, listing grants and fetching the owner's rules **MAY** be signed by either role ([Section 8.4](#84-the-inbox), [Section 8.7](#87-grants), [Section 8.8](#88-owners-rules)). Storing an offer ([Section 7.3](#73-short-links)), a picture ([Section 3.5](#35-pictures)) or the owner's rules, confirming or lowering a grant, or refusing a HID, **MUST** be signed by a `device` delegation.
 
 ### 5.4 Key Rotation
 
@@ -608,6 +608,7 @@ All operations are HTTPS requests to the `endpoint` from the relevant hashi docu
 | Server document | `GET https://{domain}/.well-known/hashi` | Anyone | Find a domain's endpoint, server key and sign-up page ([Section 4.7](#47-the-server-document)). |
 | Short link | `GET https://{domain}/h/{code}` | Anyone | Fetch the offer behind a short link ([Section 7.3](#73-short-links)). |
 | Redeem | `POST {endpoint}/redeem` | Another owner's device | Accept an offer. Nothing changes until the owner confirms and picks the level. |
+| Redeem status | `POST {endpoint}/redeem/status` | Another owner's device | Ask whether the owner has confirmed you, never at what level ([Section 8.2](#82-redeem)). |
 | Send | `POST {endpoint}/messages` | Another owner's agent | Deliver a sealed message to the owner's inbox. |
 | List | `GET {endpoint}/inbox` | The owner's agents and devices | See what's waiting. |
 | Claim | `POST {endpoint}/inbox/{id}/claim` | The owner's agents | Move a message from incoming to processing. |
@@ -667,6 +668,32 @@ The server **MUST**:
 6. Hold the acceptance, with any `offer_back`, as pending until the owner answers it ([Section 8.7](#87-grants)), and answer 202. A HID has at most one pending acceptance, and a later one replaces it.
 
 **Response:** 202 with no body. The redeemer isn't told the level the owner picks.
+
+**Finding out it was confirmed.** The redeemer's app can ask the owner's server whether the owner has confirmed them yet, so it can show that they can now reach the owner:
+
+```http
+POST /v1/redeem/status HTTP/1.1
+Host: hashi.my.domain
+Content-Type: application/hashi+json
+Signature-Input: ...
+Signature: ...
+Hashi-Delegation: eyJ...
+
+{
+  "hashi": "john#my.domain",
+  "requester": { "hashi": "sarah#example.org" }
+}
+```
+
+The server checks the request as for Redeem, steps 1 and 2, with `hashi` in place of the offer's, and answers 200:
+
+```json
+{ "confirmed": true }
+```
+
+`confirmed` is `true` if the owner records a level of 1 or more for the caller's HID and hasn't refused it, and `false` otherwise. The answer **MUST NOT** carry the level or anything else about the grant, and **MUST** be `false` alike whether the acceptance is still pending, was declined, was dropped after 30 days, was never made or the HID is refused, so a decline or a refusal looks like waiting ([Section 6.4](#64-zero-is-zero)). That tells the redeemer nothing a send couldn't, since a full-size send already succeeds only from level 1 up ([Section 8.3](#83-send)). The answer is a display hint, not a decision, so it isn't signed. Servers **SHOULD** rate-limit it per caller like Redeem.
+
+The redeemer's app **MAY** ask while an acceptance it made is less than 30 days old and not known to be confirmed, and **SHOULD NOT** ask about one more than about once an hour. Once the answer is `true` it can stop asking. After 30 days an unanswered acceptance has been dropped, so it can stop asking then too. When the owner redeems the redeemer's `offer_back`, the owner has confirmed them already ([Section 8.7](#87-grants)), and the app needn't ask.
 
 **Only a person redeems.** Accepting an offer tells its owner who you are, and an offer in a message or on a web page may have been planted to trick an agent, so agents can't redeem. The redeemer's app **MUST** show the offer's display name and hashi and get the user's explicit confirmation before redeeming.
 
@@ -941,8 +968,8 @@ Problems that aren't decisions return an `error` body, not a `result`:
 |-------------|------|
 | 400 | Malformed request, a level-0 message over 8 KiB ([Section 8.3](#83-send)), an offer to store that doesn't verify or has expired, an `offer_back` that fails the checks in [Section 8.2](#82-redeem), a picture to store that breaks the rules in [Section 3.5](#35-pictures), owner's rules that fail the checks in [Section 8.8](#88-owners-rules), or a request over 64 KiB. |
 | 401 | Missing or invalid signature, delegation or key. |
-| 403 | Redeem: not signed by a device delegation. Inbox, grants, rules, storing offers and storing pictures: the caller isn't one of the owner's agents or devices, or isn't allowed that action. Publish: not allowed by this server's policy, or the document isn't for this server. |
-| 404 | Resolve, Redeem and Send: no such hashi on this server. Inbox: no such message. Short link: unknown code, or the link has stopped. Storing an offer: no short links on the hashi's domain. Storing a picture: this server doesn't host pictures. Rules: the server holds none, or doesn't keep rules. |
+| 403 | Redeem and redeem status: not signed by a device delegation. Inbox, grants, rules, storing offers and storing pictures: the caller isn't one of the owner's agents or devices, or isn't allowed that action. Publish: not allowed by this server's policy, or the document isn't for this server. |
+| 404 | Resolve, Redeem, redeem status and Send: no such hashi on this server. Inbox: no such message. Short link: unknown code, or the link has stopped. Storing an offer: no short links on the hashi's domain. Storing a picture: this server doesn't host pictures. Rules: the server holds none, or doesn't keep rules. |
 | 409 | Claim: already claimed. Publish: the document doesn't extend the held one. Grants: the level is higher than the recorded one and nothing is pending. Storing rules: `iat` isn't later than that of the rules held. |
 | 410 | Redeem only: offer already used or expired. |
 | 429 | Rate limited. Includes `Retry-After`. |
@@ -1164,7 +1191,7 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 - **Sealed, not read.** The HASHI server sees who sends to whom, when, the intent, the thread and the size. It never sees message content. Servers **SHOULD** keep that metadata no longer than the messages themselves.
 - **Wake-ups say nothing.** A wake-up notice carries no part of a message, so push services learn only that something changed.
 - **A `nah` is just a `nah`.** It carries no reason, and a per-HID refusal looks the same as any other ([Section 6.4](#64-zero-is-zero)).
-- **Offers carry only the issuer's own details.** They name no level, and nothing in the protocol tells a redeemer the level the owner confirmed.
+- **Offers carry only the issuer's own details.** They name no level, and nothing in the protocol tells a redeemer the level the owner confirmed. A redeemer can ask only whether they've been confirmed ([Section 8.2](#82-redeem)), which a send would show them anyway, and a decline looks the same as waiting.
 - **Domain hashis reveal affiliation.** `john#my.domain` tells people where John works. For personal use, a hashi on a provider's domain gives more privacy.
 - **Check your devices.** Implementations **SHOULD** let owners list, and revoke in one step, every device, agent and grant, in case someone else set up or still has access to one of them.
 

@@ -204,6 +204,57 @@ paths:
         '429':
           $ref: '#/components/responses/RateLimited'
 
+  /redeem/status:
+    post:
+      operationId: redeemStatus
+      summary: Ask whether the owner has confirmed you. One of the redeemer's devices only; never says the level.
+      description: |
+        confirmed is true if the owner records a level of 1 or more for the
+        caller's HID and hasn't refused it. It is false alike while the
+        acceptance is pending, after a decline, once it was dropped after 30
+        days, if none was made and if the HID is refused (specification
+        Section 8.2). The answer is a display hint and isn't signed.
+      parameters:
+        - $ref: '#/components/parameters/SignatureInput'
+        - $ref: '#/components/parameters/Signature'
+        - $ref: '#/components/parameters/ContentDigest'
+        - $ref: '#/components/parameters/HashiDelegation'
+      requestBody:
+        required: true
+        content:
+          application/hashi+json:
+            schema:
+              $ref: '#/components/schemas/RedeemStatusRequest'
+      responses:
+        '200':
+          description: Whether the caller has been confirmed.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/RedeemStatus'
+        '400':
+          description: Malformed request.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Not signed by a device delegation.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No such hashi on this server, the same answer Resolve gives.
+          content:
+            application/hashi+json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /messages:
     post:
       operationId: sendMessage
@@ -1112,6 +1163,32 @@ components:
         offer_back:
           $ref: '#/components/schemas/JWS'
           description: A one-time offer of the redeemer's own, for the owner to accept when confirming them. Its hashi MUST be requester.hashi. Apps SHOULD send one unless the user turns this off (specification Section 8.2).
+
+    RedeemStatusRequest:
+      type: object
+      required: [hashi, requester]
+      properties:
+        hashi:
+          $ref: '#/components/schemas/Hashi'
+          description: The owner's hashi, whose offer the caller redeemed.
+        requester:
+          type: object
+          description: The caller's own hashi.
+          required: [hashi]
+          properties:
+            hashi:
+              $ref: '#/components/schemas/Hashi'
+          additionalProperties: false
+      additionalProperties: false
+
+    RedeemStatus:
+      type: object
+      required: [confirmed]
+      properties:
+        confirmed:
+          type: boolean
+          description: True once the owner has given the caller a level of 1 or more. Never the level.
+      additionalProperties: false
 
     ServerDocument:
       type: object
