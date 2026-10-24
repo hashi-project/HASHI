@@ -38,15 +38,16 @@ That left the redeemer's app guessing. In testing, an app showed "you can reach 
 ### Positive
 
 - The redeemer's app can show "you can reach them" as soon as it next asks after the owner confirms, between any two servers.
-- Nothing new is disclosed: not the level, not a decline and not a refusal.
+- The redeemer learns nothing new: not the level, not a decline and not a refusal.
 
 ### Negative
 
 - It's a poll. The app learns of a confirmation only when it next asks (on unlock or refresh, at most about hourly per acceptance), not the moment it happens.
+- Asking discloses something to the owner's server: until the redeemer is confirmed, for up to 30 days, it sees roughly when the redeemer's app is in use, and from what address, even after a decline. That's why apps ask at most about hourly, count failed asks too, and stop as soon as they know. Section 13 says so.
 - One more call for servers to rate-limit.
 - A decline keeps showing as waiting for up to 30 days.
 
 ## Specification Changes
 
-- `docs/specification.md`: Section 8 operations table; Section 8.2 ("Finding out it was confirmed"); Section 5.3 (role checks); Section 8.9 (403 and 404); Section 13 ("Offers carry only the issuer's own details").
+- `docs/specification.md`: Section 8 operations table; Section 8.2 ("Finding out it was confirmed"); Section 5.3 (role checks); Section 8.9 (403 and 404); Section 13 ("Offers carry only the issuer's own details", and "Asking whether you were confirmed can track").
 - `specification/hashi-openapi.yaml`: `/redeem/status`, `RedeemStatusRequest`, `RedeemStatus`.
