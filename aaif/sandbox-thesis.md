@@ -29,7 +29,7 @@ Agent-to-agent protocols mostly answer *how* agents talk. HASHI answers *who* is
 ## Where it is today
 
 - Specification v0.1 (draft), Apache-2.0, with an OpenAPI description and Architecture Decision Records.
-- A working server running at myhashi.org, mobile apps for iOS and Android in public beta, and an agent connector (MCP server) used with Claude Code, Codex and OpenClaw. These implementations are developed by Ocean Labs Limited and aren't open source yet. The specification is the project proposed here, and it is written so others can implement it independently.
+- A working server running at myhashi.org, mobile apps for iOS and Android in public beta, and an agent connector (MCP server) used with Claude Code, Codex and OpenClaw. The connector is open source under Apache-2.0 as the reference implementation of the agent side. The server and apps are Ocean Labs' own implementation of the specification, which is written so others can implement it independently.
 - One maintainer so far, with a documented intent in GOVERNANCE.md to move to a multi-maintainer model.
 
 ## What would justify Growth
