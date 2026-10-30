@@ -61,7 +61,9 @@ h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 4vw
 @media (max-width: 760px) { .panel { grid-template-columns: minmax(0, 1fr); } }
 .caption { min-width: 0; display: grid; align-content: start; gap: 10px; }
 .kicker { font: 500 0.75rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.caption h2 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; line-height: 1.15; margin: 0; text-wrap: balance; }
+.caption h2 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; line-height: 1.15; margin: 0; text-wrap: balance; display: flex; align-items: center; gap: 12px; }
+/* The step's number, drawn like the current dot below the diagram. */
+.num { flex: none; display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%; background: var(--john); color: var(--surface); font: 600 0.95rem var(--mono); font-variant-numeric: tabular-nums; }
 .caption p { margin: 0; max-width: 62ch; }
 .intro p { max-width: 80ch; }
 .checks { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
@@ -126,7 +128,7 @@ footer { font-size: 0.82rem; color: var(--muted); }
 
   <section class="caption intro" aria-live="polite">
     <div class="kicker" id="kicker"></div>
-    <h2 id="title"></h2>
+    <h2><span class="num" id="stepNum" aria-hidden="true"></span><span id="title"></span></h2>
     <p id="body"></p>
   </section>
 
@@ -399,6 +401,7 @@ function buildStage() {
 function fillIntro(root, i) {
   const st = STEPS[i], q = sel => root.querySelector(sel);
   q("#kicker").textContent = `Step ${i + 1} of ${STEPS.length} · ${st.when}`;
+  q("#stepNum").textContent = i + 1;
   q("#title").textContent = st.t;
   q("#body").textContent = st.body;
 }

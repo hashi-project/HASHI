@@ -65,7 +65,9 @@ h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 4vw
 @media (max-width: 760px) { .panel { grid-template-columns: minmax(0, 1fr); } }
 .caption { min-width: 0; display: grid; align-content: start; gap: 10px; }
 .kicker { font: 500 0.75rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.caption h2 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; line-height: 1.15; margin: 0; text-wrap: balance; }
+.caption h2 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; line-height: 1.15; margin: 0; text-wrap: balance; display: flex; align-items: center; gap: 12px; }
+/* The step's number, drawn like the current dot below the diagram. */
+.num { flex: none; display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%; background: var(--john); color: var(--surface); font: 600 0.95rem var(--mono); font-variant-numeric: tabular-nums; }
 .caption p { margin: 0; max-width: 80ch; }
 .decision { justify-self: start; display: inline-flex; align-items: center; gap: 8px; font: 500 0.85rem var(--body); color: var(--you); border: 1.5px solid var(--you); border-radius: 999px; padding: 3px 12px 3px 10px; animation: rise 0.35s ease both; }
 .decision b { font: 600 0.7rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
@@ -133,7 +135,7 @@ footer a { color: inherit; }
   <section class="panel" aria-live="polite">
     <div class="caption">
       <div class="kicker" id="kicker"></div>
-      <h2 id="title"></h2>
+      <h2><span class="num" id="stepNum" aria-hidden="true"></span><span id="title"></span></h2>
       <div class="decision" id="decision"><b id="decWho"></b><span id="decWhat"></span></div>
       <p id="body"></p>
     </div>
@@ -389,6 +391,7 @@ function drawScreen(id, lines, who, asleep) {
 function fillCaption(root, i) {
   const st = STEPS[i], q = sel => root.querySelector(sel);
   q("#kicker").textContent = `Step ${i + 1} of ${STEPS.length} · ${st.when}`;
+  q("#stepNum").textContent = i + 1;
   q("#title").textContent = st.t;
   q("#body").textContent = st.body;
   const dec = q("#decision");
