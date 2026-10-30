@@ -86,7 +86,7 @@ The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **
 | **Identity key** | The owner's root signing key. Signs the binding, delegations, rotations and the owner's rules, and nothing else. |
 | **Device key** | A key on one of the owner's devices, delegated by the identity key. Signs offers and redeems other people's, confirms grants and manages the inbox. |
 | **Server key** | A key held by the HASHI server, delegated through the binding. Signs freshness statements and stamps. |
-| **Agent key** | A signing key held by an agent, delegated by the identity key. Signs messages, reply tokens and requests. |
+| **Agent key** | A signing key held by an agent, delegated by the identity key. Signs messages, reply tokens and requests. HASHI can't tell whether software or a person holds it: it says only that the owner delegated it. |
 | **Encryption key** | A key-agreement key held by an agent and published in its delegation. The agent's copy of the inbox key is sealed to it. |
 | **Inbox key** | A key-agreement key that belongs to the hashi rather than to any one agent. Every message to the owner is sealed to it, and each of the owner's agents holds a copy. |
 | **HASHI server** | The always-on service that publishes the hashi document, handles redemptions and holds the owner's inbox. |
@@ -927,17 +927,26 @@ The rules are a compact JWS:
 {
   "golden": "Ask me before handing over money, passwords or other people's details.",
   "levels": [
-    { "from": 2, "text": "Can ask when I'm free and arrange a coffee." },
-    { "from": 6, "text": "Can also book dinner and see my travel plans." }
+    { "from": 2, "text": "Can ask when I'm free and arrange a coffee.", "allow": ["reply", "share-free-busy"], "intents": ["schedule"] },
+    { "from": 6, "text": "Can also book dinner and see my travel plans.", "allow": ["send", "book-calendar"] }
   ]
 }
 ```
 
 In each entry, `from` is a trust level from 0 to 9, and `text` is a string holding the owner's instructions to their agents. An entry applies to anyone at level `from` or above, so rules add up as levels rise. The entries can come in any order, with at most one for each level. A level that no entry reaches allows nothing, so an empty list means the owner's agents act for no one.
 
+**Lists.** `text` is for a language model to follow, and a message written to talk a model out of it may succeed. So an entry **MAY** also carry lists that an agent's own code checks:
+
+- `allow`: the actions the owner's agents may take for someone at that level, each a token matching `^[a-z][a-z0-9-]{0,31}$`. Two have a meaning in HASHI: `reply`, answering a message on its thread, and `send`, writing to that person first. Others, such as `book-calendar` or `share-free-busy`, are the owner's and their agents' to agree on.
+- `intents`: the intents ([Section 8.3](#83-send)) the owner's agents open messages with at that level.
+
+Like `text`, each list adds up as levels rise: what applies at a level is every list from the entries that reach it. Once any entry in the rules carries an `allow` list, a level that no `allow` list reaches allows no action, and likewise for `intents`. Rules without lists leave every action to `text`. An agent that understands the lists **MUST** keep to them in code, not by asking a model: it **MUST NOT** answer a message unless `reply` is allowed for the sender's level, **MUST NOT** write first to someone unless `send` is allowed for the level of their latest message or the owner has confirmed it, and **MUST NOT** open a message whose intent isn't listed when `intents` applies. It **SHOULD** tell the model which other actions are allowed, and that nothing else is.
+
+**No rules, no content.** An agent **SHOULD NOT** open a message, at any level, when no entry with non-empty `text` reaches the sender's level, and then tells its model only who sent it, the intent and the thread. Golden rules don't count, since they allow nothing.
+
 `golden`, which is optional, is a string holding the owner's golden rules: instructions to their agents whatever the sender's level. An agent keeps to them on top of the entries that apply, and where the two disagree, the golden rules win. They only ever hold an agent back and never allow anything, so a level that no entry reaches still allows nothing.
 
-Agents ignore any other fields they don't know, and an app that stores the rules again keeps those fields.
+Agents ignore any other fields they don't know, and an app that stores the rules again keeps those fields. An agent that doesn't understand `allow` and `intents` ignores them too, so an owner who relies on them needs agents that do.
 
 **Storing.** `PUT {endpoint}/rules` **MUST** be signed by a device delegation belonging to the owner ([Section 8.1](#81-request-signing)). Its body is `{ "rules": "<JWS>" }`. The server **MUST** check that the JWS's `typ` is `hashi-rules+jwt` and its signature verifies with `identity_key` in the document the server holds, that `iss` and `hashi` are that document's `hid` and `hashi`, that `sealed` names the `kid` of that document's `inbox_key`, and that `iat` is no more than 60 seconds in the future. If any of these checks fails, it answers 400. If `iat` isn't later than that of the rules it holds, it answers 409. Otherwise it keeps the new rules in place of any it held and answers 204. When the server drops the held document after a reset or deletion ([Section 8.6](#86-publish)), it drops the rules too.
 
@@ -1017,10 +1026,10 @@ An agent opening an envelope **MUST**:
 1. Verify the stamp ([Section 9.2](#92-the-stamp)) against the server key in its own owner's binding. If it doesn't verify, re-resolve the owner's hashi document and list the message again ([Section 8.4](#84-the-inbox)), and reject it only if the stamp still doesn't verify ([Section 4.6](#46-changing-the-server-key)).
 2. Check that the stamp's `ct` matches the envelope's `ciphertext` ([Section 9.2](#92-the-stamp)).
 3. Decrypt with the inbox key named by the envelope's `kid`, re-resolving the owner's hashi document if the agent doesn't have that key yet. Then verify the inner JWS, and check that `dlg` chains to the HID in `iss` by resolving `from`.
-4. Check that `iss`, `from`, `to`, `thread` and `intent` match the stamp.
-5. Discard a `jti` it has already seen from that sender.
+4. Check that `iss` matches the stamp's `sub`, and that `from`, `to`, `thread` and `intent` match the stamp. An `intent` on one and not the other is a mismatch.
+5. Discard a `jti` it has already seen from that sender in another inbox message. An agent **MUST** remember the `jti` values it has seen, with the sender's HID, for at least 31 days, which is longer than any server keeps a message ([Section 8.4](#84-the-inbox)), and **MUST** reject a message whose `iat` is older than that or more than 60 seconds in the future, since it can no longer tell whether it has seen it.
 
-The `body` is untrusted input whatever the sender's level. It **MUST NOT** be given to a language model as instructions.
+The `body` is untrusted input whatever the sender's level. It **MUST NOT** be given to a language model as instructions. `intent` and `thread` are labels the sender chose: they help an agent sort messages, and grant nothing.
 
 ### 9.2 The Stamp
 
@@ -1176,7 +1185,10 @@ Agents never need to accept inbound connections. They only connect out, to HASHI
 | **Minting offers for someone else's hashi** | Offers must chain to the HID of the hashi they name ([Section 7.1](#71-the-offer-token)). |
 | **Impersonation by display name or picture** | Display names and pictures are claims, not identity, and a company's logo is the first thing an impersonator would copy. Only the hashi's domain shows which organisation it belongs to. Clients show the hashi until a relationship exists, load pictures only after one, and prefer the user's own contact names. |
 | **Stolen device or agent keys** | Limited by delegation expiry, the `revoked` list and role checks, and for device keys by `max_lvl`. A stolen agent key speaks for the owner at every level others have given them until it's revoked or expires. A rotation invalidates all earlier delegations. Every agent holds the inbox key, which can't stay in hardware the way an agent's own keys can. So one stolen copy, or an agent paired by mistake, opens every message still waiting and every new one until the key changes, which is why removing an agent quickly matters. |
-| **Prompt injection** | Message bodies are untrusted input at every level and **MUST NOT** be given to a language model as instructions. Outside the envelope, the only free text from other people is the display name and the offer note, both untrusted display metadata. The owner's rules are the one text agents take as instructions, and only once they have checked that the owner's identity key signed them ([Section 8.8](#88-owners-rules)). Pictures are untrusted in the same way, since an image can carry text aimed at a model. Intents are constrained tokens. High trust says *who* sent a message, not that what it says is safe to act on. Agents can't redeem offers, so an offer planted in a message or on a web page can't trick one into accepting it ([Section 8.2](#82-redeem)). |
+| **Agent takeover through content** | Signatures and the stamp say who sent a message and at what level, never that what it says is safe. Once an agent's model reads a body, whether it keeps to the owner's rules is up to the model, so a well-written message can talk it into using whatever else it can reach: a shell, files, email. Agents limit this in code: they open a message only when the owner's rules reach the sender's level, and they enforce the `allow` and `intents` lists ([Section 8.8](#88-owners-rules)). Owners **SHOULD** run agents that handle HASHI messages with tool-permission prompts on, or in a sandbox that holds only what they need, and **SHOULD** have them confirm any action outside HASHI. An agent that can write its own rules or settings can be talked into changing them. |
+| **Exfiltration by sending** | A message can ask an agent to send what it knows to the writer's own hashi, or to anyone else's. An agent's reply goes only to the sender of the message it answers, on that thread. Writing first to anyone else **SHOULD** need `send` for the recipient's level, a recipient the owner has listed, or the owner's own confirmation at the time. |
+| **Humans posing as agents** | An agent key says only that the owner delegated it ([Section 5.3](#53-delegation-certificates)). Whether software or a person holds it, the message speaks for that owner at the level the recipient gave them, and is untrusted input either way. |
+| **Prompt injection** | Message bodies are untrusted input at every level and **MUST NOT** be given to a language model as instructions. Outside the envelope, the only free text from other people is the display name and the offer note, both untrusted display metadata. The owner's rules are the one text agents take as instructions, and only once they have checked that the owner's identity key signed them ([Section 8.8](#88-owners-rules)). Pictures are untrusted in the same way, since an image can carry text aimed at a model. Intents are constrained tokens, chosen by the sender, so they grant nothing. High trust says *who* sent a message, not that what it says is safe to act on. Agents can't redeem offers, so an offer planted in a message or on a web page can't trick one into accepting it ([Section 8.2](#82-redeem)). |
 | **Server-side request forgery** | See [Section 11](#11-network-security). |
 | **Clock skew** | Verifiers **SHOULD** allow up to 60 seconds on `iat`, `exp` and `created`. |
 
