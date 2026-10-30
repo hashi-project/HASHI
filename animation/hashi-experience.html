@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: the same stage as the handshake animation, but John's and Sarah's phones show their screens.
-   Agents and servers sit between them. Below: what happens and who decides. */
+   Agents and servers sit between them. Above: what happens and who decides. */
 :root {
   --bg: #EDF0F4;
   --surface: #FFFFFF;
@@ -66,7 +66,7 @@ h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 4vw
 .caption { min-width: 0; display: grid; align-content: start; gap: 10px; }
 .kicker { font: 500 0.75rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .caption h2 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; line-height: 1.15; margin: 0; text-wrap: balance; }
-.caption p { margin: 0; max-width: 62ch; }
+.caption p { margin: 0; max-width: 80ch; }
 .decision { justify-self: start; display: inline-flex; align-items: center; gap: 8px; font: 500 0.85rem var(--body); color: var(--you); border: 1.5px solid var(--you); border-radius: 999px; padding: 3px 12px 3px 10px; animation: rise 0.35s ease both; }
 .decision b { font: 600 0.7rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
 @keyframes rise { from { opacity: 0.2; transform: translateY(3px); } to { opacity: 1; transform: none; } }
@@ -130,6 +130,15 @@ footer a { color: inherit; }
     </div>
   </header>
 
+  <section class="panel" aria-live="polite">
+    <div class="caption">
+      <div class="kicker" id="kicker"></div>
+      <h2 id="title"></h2>
+      <div class="decision" id="decision"><b id="decWho"></b><span id="decWhat"></span></div>
+      <p id="body"></p>
+    </div>
+  </section>
+
   <div class="stage"><svg id="stage" role="img" aria-label="Animated diagram of John's phone, John's agent and HASHI server, Sarah's HASHI server and agent, and Sarah's phone, showing what each person sees"></svg></div>
 
   <div class="controls">
@@ -140,15 +149,6 @@ footer a { color: inherit; }
     <button class="btn" id="restart" type="button">Restart</button>
   </div>
   <div class="bar"><b id="bar"></b></div>
-
-  <section class="panel" aria-live="polite">
-    <div class="caption">
-      <div class="kicker" id="kicker"></div>
-      <h2 id="title"></h2>
-      <div class="decision" id="decision"><b id="decWho"></b><span id="decWhat"></span></div>
-      <p id="body"></p>
-    </div>
-  </section>
 
   <footer>Steps with an amber dot are where John or Sarah decides something. Everything else is their apps and agents following those decisions. Use ← → to step, space to pause.</footer>
 </div>
@@ -385,6 +385,31 @@ function drawScreen(id, lines, who, asleep) {
   }
 }
 
+/* ---------- caption ---------- */
+function fillCaption(root, i) {
+  const st = STEPS[i], q = sel => root.querySelector(sel);
+  q("#kicker").textContent = `Step ${i + 1} of ${STEPS.length} · ${st.when}`;
+  q("#title").textContent = st.t;
+  q("#body").textContent = st.body;
+  const dec = q("#decision");
+  dec.hidden = !st.decide;
+  if (st.decide) { q("#decWho").textContent = (st.decide.who === "john" ? "John" : "Sarah") + " decides"; q("#decWhat").textContent = st.decide.what; }
+}
+
+// The caption sits above the diagram, so it keeps the height of its longest step and the diagram doesn't move.
+function fitCaption() {
+  const box = document.querySelector(".panel");
+  const probe = box.cloneNode(true);
+  probe.removeAttribute("aria-live");
+  probe.setAttribute("aria-hidden", "true");
+  Object.assign(probe.style, { position: "absolute", visibility: "hidden", left: "-9999px", top: "0", width: box.clientWidth + "px", minHeight: "0" });
+  document.body.appendChild(probe);
+  let h = 0;
+  STEPS.forEach((_, k) => { fillCaption(probe, k); h = Math.max(h, probe.offsetHeight); });
+  probe.remove();
+  box.style.minHeight = h + "px";
+}
+
 function applyState(i) {
   const st = STEPS[i];
   for (const id in ACTORS) {
@@ -409,12 +434,7 @@ function applyState(i) {
   $("line-sserver").textContent = st.ssrv || (st.sHas ? "sarah#example.org" : "no sarah yet");
   $("pkts").innerHTML = "";
 
-  $("kicker").textContent = `Step ${i + 1} of ${STEPS.length} · ${st.when}`;
-  $("title").textContent = st.t;
-  $("body").textContent = st.body;
-  const dec = $("decision");
-  dec.hidden = !st.decide;
-  if (st.decide) { $("decWho").textContent = (st.decide.who === "john" ? "John" : "Sarah") + " decides"; $("decWhat").textContent = st.decide.what; }
+  fillCaption(document, i);
   [...$("dots").children].forEach((d, k) => { d.classList.toggle("cur", k === i); d.classList.toggle("done", k < i); d.setAttribute("aria-current", k === i ? "step" : "false"); });
 }
 
@@ -536,12 +556,13 @@ document.addEventListener("keydown", e => {
   else if (e.key === " ") { e.preventDefault(); $("play").click(); }
 });
 let rz;
-window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { const n = svg.parentElement.clientWidth < 620 ? "narrow" : "wide"; if (n !== layoutName) { buildStage(); run(cur); } }, 150); });
+window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { fitCaption(); const n = svg.parentElement.clientWidth < 620 ? "narrow" : "wide"; if (n !== layoutName) { buildStage(); run(cur); } }, 150); });
 
 syncPlay();
 buildStage();
 applyState(0);
-(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => run(0));
+fitCaption();
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => { fitCaption(); run(0); });
 </script>
 
 </body></html>
