@@ -302,7 +302,7 @@ const STEPS = [
     code: "GET https://my.domain/.well-known/hashi/john\nAccept: text/html          ← a browser, so John's page\n\n    Got a hashi?\n    John Doe · john#my.domain\n\n    [ Open in app ]   → hashi://my.domain/john#o=…\n    [ Get a hashi ]   → app stores and providers\n\nNothing is redeemed. Once Sarah has a hashi, she taps\nthe link again and her app picks up at step 3." },
 
   { when: "whenever John chooses", t: "If John moves on",
-    body: "Say John later drops Sarah to 0. He doesn't accept level-0 messages, so from her very next message the answer is nah, and nothing reaches his inbox. It carries no reason and looks exactly like the nah any stranger gets, so Sarah can't tell she's been singled out. Even if John did take messages from strangers, his rules give them nothing, so his agent would leave them sealed. Anything already agreed stays agreed.",
+    body: "Say John later drops Sarah to 0. He doesn't accept level-0 messages, so from her very next message the answer is nah, and nothing reaches his inbox. It carries no reason and looks exactly like the nah any stranger gets, so Sarah can't tell she's been singled out. Even if John did take messages from strangers, his rules give them nothing, so his agent would leave them sealed. It only stops what comes next: the coffee they already booked stays booked until one of them cancels it.",
     active: ["sphone", "server"], paths: ["req", "resp"], ledger: 0, decide: "level 0 · not accepted", sLabel: "Sarah's new agent",
     packets: [{ path: "req", label: "send · schedule", who: "sarah" }, { path: "resp", label: "nah", who: "server" }],
     codeLabel: "← 403 nah",

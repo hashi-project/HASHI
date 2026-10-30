@@ -272,7 +272,7 @@ const STEPS = [
     packets: [] },
 
   { when: "whenever they choose", t: "Either of them can step back",
-    body: "Trust stays in their hands. If John ever drops Sarah to 0, her agent's next message gets a plain no, the same answer a stranger gets, and his agent can no longer write to her without asking him. Anything already agreed stays agreed.",
+    body: "Trust stays in their hands. If John ever drops Sarah to 0, her agent's next message gets a plain no, the same answer a stranger gets, and his agent can no longer write to her without asking him. It only stops what comes next: the coffee they already booked stays in their calendars until one of them cancels it.",
     decide: { who: "john", what: "lowers Sarah to 0" },
     active: ["jphone", "jserver", "sagent"], paths: ["jpub", "sToJ"], jHas: 1, jLinked: 1, sHas: 1, sLinked: 1,
     jscreen: [["h", "Sarah"], ["m", "sarah#example.org", "sarah"], ["sp"], ["n", "Her level"], ["lvl", "◀  4 → 0  ▶"], ["n", "Can no longer reach you."], ["btn", "Save", "Saved ✓", "tap"]],
