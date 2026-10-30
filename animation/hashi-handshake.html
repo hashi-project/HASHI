@@ -4,7 +4,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: a signalling stage (actors + moving packets) above a two-column caption / payload panel; one step at a time */
+/* Layout: what's happening, then a signalling stage (actors + moving packets), then the checks and payload; one step at a time */
 :root {
   --bg: #EDF0F4;
   --surface: #FFFFFF;
@@ -63,6 +63,7 @@ h1 { font-family: var(--display); font-weight: 700; font-size: clamp(1.6rem, 4vw
 .kicker { font: 500 0.75rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .caption h2 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; line-height: 1.15; margin: 0; text-wrap: balance; }
 .caption p { margin: 0; max-width: 62ch; }
+.intro p { max-width: 80ch; }
 .checks { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
 .checks li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; font-size: 0.9rem; animation: rise 0.35s ease both; }
 .checks li::before { content: "✓"; color: var(--john); font-weight: 600; }
@@ -123,6 +124,12 @@ footer { font-size: 0.82rem; color: var(--muted); }
     </div>
   </header>
 
+  <section class="caption intro" aria-live="polite">
+    <div class="kicker" id="kicker"></div>
+    <h2 id="title"></h2>
+    <p id="body"></p>
+  </section>
+
   <div class="stage"><svg id="stage" role="img" aria-label="Animated diagram of HASHI messages between John's phone, John's HASHI server, Sarah's app or agent, and Sarah's HASHI server"></svg></div>
 
   <div class="controls">
@@ -134,12 +141,9 @@ footer { font-size: 0.82rem; color: var(--muted); }
   </div>
   <div class="bar"><b id="bar"></b></div>
 
-  <section class="panel" aria-live="polite">
+  <section class="panel">
     <div class="caption">
-      <div class="kicker" id="kicker"></div>
-      <h2 id="title"></h2>
-      <p id="body"></p>
-      <ul class="checks" id="checks"></ul>
+      <ul class="checks" id="checks" aria-label="What gets checked"></ul>
     </div>
     <div class="payload">
       <div class="lbl" id="codeLabel"></div>
@@ -391,6 +395,28 @@ function buildStage() {
   el("g", { id: "pkts" }, svg);
 }
 
+/* ---------- caption ---------- */
+function fillIntro(root, i) {
+  const st = STEPS[i], q = sel => root.querySelector(sel);
+  q("#kicker").textContent = `Step ${i + 1} of ${STEPS.length} · ${st.when}`;
+  q("#title").textContent = st.t;
+  q("#body").textContent = st.body;
+}
+
+// What's happening sits above the diagram, so it keeps the height of its longest step and the diagram doesn't move.
+function fitIntro() {
+  const box = document.querySelector(".intro");
+  const probe = box.cloneNode(true);
+  probe.removeAttribute("aria-live");
+  probe.setAttribute("aria-hidden", "true");
+  Object.assign(probe.style, { position: "absolute", visibility: "hidden", left: "-9999px", top: "0", width: box.clientWidth + "px", minHeight: "0" });
+  document.body.appendChild(probe);
+  let h = 0;
+  STEPS.forEach((_, k) => { fillIntro(probe, k); h = Math.max(h, probe.offsetHeight); });
+  probe.remove();
+  box.style.minHeight = h + "px";
+}
+
 function applyState(i) {
   const st = STEPS[i];
   for (const id in ACTORS) {
@@ -434,9 +460,7 @@ function applyState(i) {
   }
   $("pkts").innerHTML = "";
 
-  $("kicker").textContent = `Step ${i + 1} of ${STEPS.length} · ${st.when}`;
-  $("title").textContent = st.t;
-  $("body").textContent = st.body;
+  fillIntro(document, i);
   const ul = $("checks"); ul.innerHTML = "";
   (st.checks || []).forEach((c, k) => { const li = document.createElement("li"); li.textContent = c; li.style.animationDelay = (0.3 + k * 0.25) + "s"; ul.appendChild(li); });
   $("codeLabel").textContent = st.codeLabel;
@@ -532,12 +556,13 @@ document.addEventListener("keydown", e => {
   else if (e.key === " ") { e.preventDefault(); $("play").click(); }
 });
 let rz;
-window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { const n = svg.parentElement.clientWidth < 620 ? "narrow" : "wide"; if (n !== layoutName) { buildStage(); run(cur); } }, 150); });
+window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { fitIntro(); const n = svg.parentElement.clientWidth < 620 ? "narrow" : "wide"; if (n !== layoutName) { buildStage(); run(cur); } }, 150); });
 
 syncPlay();
 buildStage();
 applyState(0);
-(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => run(0));
+fitIntro();
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => { fitIntro(); run(0); });
 </script>
 
 </body></html>
